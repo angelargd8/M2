@@ -117,3 +117,6 @@ def print_ir(ir):
         if op == 'endclass':
             print(f"endclass  # {a}\n")
             continue
+        
+        # fallback
+        print(f"{op} {a} {b} {c}".strip())
