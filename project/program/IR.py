@@ -118,5 +118,6 @@ def print_ir(ir):
             print(f"endclass  # {a}\n")
             continue
         
-        # fallback
+        # default: imprimir todo
         print(f"{op} {a} {b} {c}".strip())
+        
