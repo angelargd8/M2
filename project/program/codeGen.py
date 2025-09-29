@@ -279,6 +279,12 @@ class CodeGen:
             self.emit('call', None, f'{node.class_name}.constructor', len(node.args))
         return dst
     
+    def visit_This(self, node):
+    # simbolo 'this' como fuente, lo copiamos a un temp
+        t = self.new_temp()
+        self.emit('copy', t, 'this')
+        return t
+    
     def visit_Call(self, node):
         # dos formas: Var o Member
         if node.callee.__class__.__name__ == "Var":
@@ -304,14 +310,27 @@ class CodeGen:
     def _infer_obj_name(self, obj_node) -> str:
         """
         Intenta devolver el nombre de tipo del objeto para calificar el método.
-        Caso simple: si es 'this' y estamos dentro de una clase, usar esa clase.
-        Si no sabemos, devolvemos 'obj'.
+        - this -> la clase actual (si hay)
+        - Var  -> consulta la tabla de símbolos y devuelve el tipo (si está disponible)
+
         """
+        # this -> clase actual
         if obj_node.__class__.__name__ == "This" and self.current_class:
             return self.current_class
-        # aquí devolvemos "obj"
+
+        # Var -> mira tipo en la symtab si existe
+        if obj_node.__class__.__name__ == "Var":
+            try:
+                sym = self.symtab.current_scope.resolve(obj_node.name)
+                if sym and getattr(sym, 'type', None):
+                    # TypeSymbol.name (ej. "Dog")
+                    return sym.type.name
+            except Exception:
+                pass
+
+        # fallback (desconocido)
         return "obj"
-    
+
     def visit_BinOp(self, node):
         opmap = {
             '+': 'add', '-': 'sub', '*': 'mul', '/': 'div', '%': 'mod',
@@ -388,6 +407,10 @@ class CodeGen:
             # marca fin
             self.emit('endfunc', fname)
 
+
+    
+
+
     def visit_ClassDecl(self, node):
         """
         Visita propiedades (no generan código) y métodos.
@@ -396,11 +419,15 @@ class CodeGen:
         prev_cls = self.current_class
         self.current_class = node.name
         try:
+            #inicio de la clase
+            self.emit('class', node.name)
             # propiedades: no generan TAC (solo layout)
             for p in getattr(node, "properties", []):
                 pass
             # métodos
             for m in getattr(node, "methods", []):
                 self.visit(m)  # esto llama a visit_FuncDecl y emitirá 'Clase.metodo'
+            # fin de la clase
+            self.emit('endclass', node.name)
         finally:
             self.current_class = prev_cls
