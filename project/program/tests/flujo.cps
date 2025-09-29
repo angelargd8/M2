@@ -7,7 +7,7 @@ if (flag) {
 
 // while con condición boolean
 let i: integer = 0;
-while (i < 5) {  // ✅ i<5 es boolean
+while (i < 5) {  //  i<5 es boolean
     i = i + 1;
 }
 
@@ -19,7 +19,7 @@ do {
 
 for (let j: integer = 0; j < 5; j = j + 1) {
     if (j == 2) { 
-        continue;  // ✅ ahora dentro de un bloque
+        continue;  //  ahora dentro de un bloque
     }
     if (j == 4) { 
          break; 
@@ -28,6 +28,6 @@ for (let j: integer = 0; j < 5; j = j + 1) {
 
 // return sólo dentro de funciones
 function foo(): integer {
-    return 10;              // ✅ correcto
+    return 10;              // correcto
 }
-// return 5;                // ❌ error: return fuera de función
+// return 5;                // error: return fuera de función

@@ -16,7 +16,7 @@ class Person {
 
 // Crear instancia correctamente sin 'new'
 let p: Person;
-p.Person("Francis", 20);  // ✅ llama al constructor directamente
+p.Person("Francis", 20);  // llama al constructor directamente
 
 print(p.name);   // Francis
 p.greet();       // Hello, Francis

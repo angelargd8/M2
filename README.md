@@ -15,64 +15,6 @@ En el directorio program encontrará la gramática de este lenguaje en ANTLR y e
 - Visualización del AST con Graphviz . 
 - Driver: parsea el código, construye el AST, lo visualiza y ejecuta el análisis semántico. 
 
-**Driver:**
-
-El proyecto empieza en el driver, allí es donde lee el archivo de compiscript, luego se usa ANTLR para hacer el análisis léxico y sintactico para generar el árbol de parseo, y si hay errores de sintaxis los muestra y termina el programa. Luego se convierte el árbol de parseo en un AST usando AstBuilder, se guarda el AST en output. 
-
-Ya luego se crea un semanticAnalyzer y hay dos pasadas,  
-
-La primera recolecta firmas de funciones, clases y propiedades 
-
-Y en la segunda pasada se revisan las reglas semánticas, como tipos, ámbitos o como herencia. Y si hay errores semánticos los muestra y sino indica que el chequeo no tiene errores. 
-
- 
-
-**AstBuilder:** 
-
-Se define la clase AstBuilder que lo que hace es extender el visitor generado por ANTLR para transformar el parse tree en un AST.  
-
-Las funciones de este archivo son: 
-
-Mapear los nodos del parse tree a las clases dataclass que están en AstNonde 
-
-Implementar métodos Visit para cada tipo de nodo del lenguaje, como declaraciones 
-
-Convierte los tipos textuales del lenguaje fuente a tipos internod como de integer a int 
-
-Procesa declaraciones de variables, constantes, funciones, acceso a miembros, literales y estructuras de control 
-
- 
-
-**AstNodes:**
-
-Se definen todas las clases de nodos que forman el AST y se sa las dataclases para la definición de las estructuras de datos. 
-
-Cada clase aqui representa un tipo de nodo en el AST, como declaraciones, sentencias, expresiones y los nodos tienen atributos que corresponden a los elementos sintacticos del lenguaje. 
-
- 
-
-**SymbolTable:** 
-
-Implementa la tabla de símbolos y los alcances para el analisis semántico del lenguaje 
-
-El TypeSymbol: representa un tipo 
-
-VarableSymbol: representa una variable con nombre, tipo, si es constante, inicializada y referencia al nodo de declaraci[on 
-
-Scope:  el alcance con símbolos definidos y referencia el scope padre, este permite definir y resolver símbolos en la cadena de scopes 
-
-SymbolTable: administra los scopes y los tipos, tiene el scope global el actual y los metodos para crear, entrar y salir de scopes, define y resulve variables y funciones y obtiene los tipos. 
-
-**SemanticAnalyzer:** 
-Implementa el analizador semántico para el lenguaje de Compiscript su función es verificar que el programa sea correcto a nivel de tipos, ámbitos, herencia y reglas semánticas.  
-Los métodos de utilidades son para agregar errores, verificar tipos, herencia y propiedades 
-Tiene dos pasadas principales: 
-
-- Collect_signatures: que recolecta firmas de funciones, métodos y clases y construye la información de herencia y propiedades 
-- Check: recorre el AST y válida las reglas semánticas (como tipos, inicialización...)  
-
-Los métodos _visit_ para cada tipo del nodo de AST realiza las validaciones correspondientes, como declaraciones, asignaciones, control de flujo, expresiones.  
-Y reporta errores semánticos con información de la línea y columna.  
 
 ## 🧰 Instrucciones de Configuración
 
@@ -173,7 +115,7 @@ python Driver.py program.cps
 
 
 ---
-### Requerimientos del m1:
+### Requerimientos del M1:
 
 🟢✅ 1. **Crear un analizador sintáctico utilizando ANTLR** o cualquier otra herramienta similar de su elección
    * Se recomienda usar ANTLR dado que es la herramienta que se utiliza en las lecciones del curso, pero puede utilizar otro Generador de Parsers.
@@ -228,3 +170,63 @@ python Driver.py program.cps
 5. Construir una **tabla de símbolos** que interactue con cada fase de la compilación, incluyendo las fases mencionadas anteriormente. Esta tabla debe considerar el **manejo de entornos** y almacenar toda la información necesaria para esta y futuras fases de compilación.
 6. Deberá **desarrollar un IDE** que permita a los usuarios escribir su propio código y compilarlo.
 7. Deberá crear **documentación asociada a la arquitectura de su implementación** y **documentación de las generalidades de cómo ejecutar su compilador**.
+-----------
+
+**Driver:**
+
+El proyecto empieza en el driver, allí es donde lee el archivo de compiscript, luego se usa ANTLR para hacer el análisis léxico y sintactico para generar el árbol de parseo, y si hay errores de sintaxis los muestra y termina el programa. Luego se convierte el árbol de parseo en un AST usando AstBuilder, se guarda el AST en output. 
+
+Ya luego se crea un semanticAnalyzer y hay dos pasadas,  
+
+La primera recolecta firmas de funciones, clases y propiedades 
+
+Y en la segunda pasada se revisan las reglas semánticas, como tipos, ámbitos o como herencia. Y si hay errores semánticos los muestra y sino indica que el chequeo no tiene errores. 
+
+ 
+
+**AstBuilder:** 
+
+Se define la clase AstBuilder que lo que hace es extender el visitor generado por ANTLR para transformar el parse tree en un AST.  
+
+Las funciones de este archivo son: 
+
+Mapear los nodos del parse tree a las clases dataclass que están en AstNonde 
+
+Implementar métodos Visit para cada tipo de nodo del lenguaje, como declaraciones 
+
+Convierte los tipos textuales del lenguaje fuente a tipos internod como de integer a int 
+
+Procesa declaraciones de variables, constantes, funciones, acceso a miembros, literales y estructuras de control 
+
+ 
+
+**AstNodes:**
+
+Se definen todas las clases de nodos que forman el AST y se sa las dataclases para la definición de las estructuras de datos. 
+
+Cada clase aqui representa un tipo de nodo en el AST, como declaraciones, sentencias, expresiones y los nodos tienen atributos que corresponden a los elementos sintacticos del lenguaje. 
+
+ 
+
+**SymbolTable:** 
+
+Implementa la tabla de símbolos y los alcances para el analisis semántico del lenguaje 
+
+El TypeSymbol: representa un tipo 
+
+VarableSymbol: representa una variable con nombre, tipo, si es constante, inicializada y referencia al nodo de declaraci[on 
+
+Scope:  el alcance con símbolos definidos y referencia el scope padre, este permite definir y resolver símbolos en la cadena de scopes 
+
+SymbolTable: administra los scopes y los tipos, tiene el scope global el actual y los metodos para crear, entrar y salir de scopes, define y resulve variables y funciones y obtiene los tipos. 
+
+**SemanticAnalyzer:** 
+Implementa el analizador semántico para el lenguaje de Compiscript su función es verificar que el programa sea correcto a nivel de tipos, ámbitos, herencia y reglas semánticas.  
+Los métodos de utilidades son para agregar errores, verificar tipos, herencia y propiedades 
+Tiene dos pasadas principales: 
+
+- Collect_signatures: que recolecta firmas de funciones, métodos y clases y construye la información de herencia y propiedades 
+- Check: recorre el AST y válida las reglas semánticas (como tipos, inicialización...)  
+
+Los métodos _visit_ para cada tipo del nodo de AST realiza las validaciones correspondientes, como declaraciones, asignaciones, control de flujo, expresiones.  
+Y reporta errores semánticos con información de la línea y columna.  

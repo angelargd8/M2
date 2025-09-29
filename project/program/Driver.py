@@ -5,6 +5,8 @@ from gen.CompiscriptParser import CompiscriptParser
 from AstBuilder import AstBuilder
 from AstVisualization import render_ast
 from SemanticAnalyzer import SemanticAnalyzer
+from codeGen import CodeGen
+from IR import print_ir
 
 def parse(argv):
     input_stream = FileStream(argv[1], encoding='utf-8')
@@ -37,13 +39,24 @@ def main(argv):
     errors = analyzer.check(ast)           # Pasada 2
 
     if errors:
-        print("Errores semánticos:")
+        print(">> Errores semánticos:")
         for e in errors:
             print("  -", e)
 
     else:
-        print("Chequeo semántico sin errores!")
+        print(">> Chequeo semántico sin errores!")
+        
+        # Generación de código intermedio (tres direcciones)
+        gen = CodeGen(symtab=analyzer.symtab)
+        ir = gen.generate(ast)
 
+        print("== IR (tac) ==")
+        print_ir(ir)
+
+        # Guardar el código intermedio en un archivo
+        with open("./output/program.tac", "w") as f:
+            for i in ir:
+                f.write(repr(i) + "\n")
 
     
 
