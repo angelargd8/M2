@@ -77,6 +77,37 @@ class CodeGen:
         offmap = getattr(T, "_field_offsets", {}) if T else {}
         return offmap.get(field_name, 0)
 
+    def _addr_of(self, name: str):
+        """
+        Devuelve (base, offset) para locals/params: ('FP', off)
+        o ('GP', label) para globales (si manejas globales),
+        o None si no encuentra.
+        """
+        # buscar en el scope actual
+        sym = None
+        try:
+            sym = self.symtab.current_scope.resolve(name)
+        except Exception:
+            pass
+
+        # Si está dentro de una función, usa FunctionSymbol actual:
+        f = None
+        if self.current_func:
+            f = self.symtab.global_scope.resolve(self.current_func)
+
+        # locals
+        if f and hasattr(f, 'local_offsets') and name in f.local_offsets:
+            return ("FP", str(f.local_offsets[name]))   # offset negativo
+
+        # params
+        if f and hasattr(f, 'param_offsets') and name in f.param_offsets:
+            return ("FP", str(f.param_offsets[name]))   # offset positivo
+
+        # global?
+        if sym and getattr(sym, 'is_global', False):
+            return ("GP", name)
+
+        return None
 
     # dispatcher - pasador
 
@@ -113,10 +144,12 @@ class CodeGen:
         # si tiene init: traducirlo y hacer copy a la var
         if node.init:
             src = self.visit(node.init)
-            #se asume que el nombre del simbolo es un destino valido
-            if src is not None:
-                self.emit('copy', node.name, src)
-        #sino tiene init -> nada se puede inicializar por defecto
+            addr = self._addr_of(node.name)
+            if addr:
+                base, off = addr
+                self.emit('store', base, off, src)
+            else:
+                self.emit('copy', node.name, src) 
 
     def visit_Assign(self, node):
         rhs = self.visit(node.expr)
@@ -124,9 +157,14 @@ class CodeGen:
         #casos lvalue
         t = node.target.__class__.__name__
         if t== "Var":
-            base, off, kind = self._addr_of_var(node.target.name)
-            self.emit('store', base, off, rhs)
+            addr = self._addr_of(node.target.name)
+            if addr:
+                base, off = addr
+                self.emit('store', base, off, rhs)   # MEM[base+off] = rhs
+            else:
+                self.emit('copy', node.target.name, rhs)  # fallback
             return
+
         elif t == "Member":
             obj = self.visit(node.target.object)
             off = self._field_offset(node.target.object, node.target.name)
@@ -319,12 +357,17 @@ class CodeGen:
         return dst
     
     def visit_Var(self, node):
-        base, off, kind = self._addr_of_var(node.name)
+        # verificar si tenemos dirección conocida
+        addr = self._addr_of(node.name)
         t = self.new_temp()
-        # si es global y el backend carga por etiqueta, usar (GP, etiqueta)
-        self.emit('load', t, base, off)
+        if addr:
+            base, off = addr
+            self.emit('load', t, base, off)   # t = MEM[base+off]
+        else:
+            # si aún no tienes globales mapeados
+            self.emit('copy', t, node.name)
         return t
-    
+        
     def visit_Member(self, node):
         base_obj = self.visit(node.object)  # temp con puntero/base del objeto
         off = self._field_offset(node.object, node.name)
