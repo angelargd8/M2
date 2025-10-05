@@ -1,5 +1,6 @@
 """
 Modelo de codigo de tres direcciones
+
 """
 
 from dataclasses import dataclass
@@ -121,3 +122,114 @@ def print_ir(ir):
         # default: imprimir todo
         print(f"{op} {a} {b} {c}".strip())
         
+
+# convert to quads
+# vamos a seguir la estructura como lo vimos en clase: op, arg1, arg2 y result
+def to_quads(ir):
+    quads = []
+    for ins in ir:
+        op, a, b, c =  ins.op, ins.a, ins.b, ins.c
+
+        #operaciones binarias
+        if op in ('add','sub','mul','div','mod','eq','ne','lt','le','gt','ge','and','or'):
+            quads.append((op, b,c, a))
+
+        # copy, a = dst, b = src
+        elif op =='copy':
+            quads.append(('copy', b, None, a))
+
+        # a= valor del parametro
+        elif op=='param':
+            quads.append(('param', a, None, None))
+
+        #a = dst , b = nombreFunc, c = nargs
+        elif op =='call':
+            quads.append(('call', b, c, a))
+
+        # a = valor
+        elif op=='ret':
+            quads.append(('ret', a, None, None))
+        
+        # void 
+        elif op =='ret_void':
+            quads.append(('ret', None, None, None))
+
+        # a = etiqueta
+        elif op=='label':
+            quads.append(('label', a, None, None))
+        
+        # a = etiqueta
+        elif op =='goto':
+            quads.append(('goto', a, None, None))
+
+        # a = condicion, b = etiqueta
+        elif op == 'if_goto':
+            quads.append(('if', a, None, b))
+
+        # a = condicion, b = etiqueta   
+        elif op =='iffalse_goto':
+            quads.append(('iffalse', a, None, b))
+        
+        # a = destino, b = tipo/tam/secuencia
+        elif op =='new':
+            quads.append(('new', b, None, a))
+        
+        # a = destino, b = tipo/tam/secuencia
+        elif op == 'newlist':
+            quads.append(('newlist', b, None, a))
+
+        # a = coleccion/obj b = indice / propiedad, c= valor
+        elif op == 'setidx':
+            quads.append(('setidx', a, b, c))
+
+        # a= dest, b= coleccion/objeto, indice/prop
+        elif op == 'getidx':
+            quads.append(('getidx', b, c, a))
+
+        # a= dest, b= coleccion/objeto, indice/prop
+        elif op == 'setprop':
+            quads.append(('setprop', a, b, c))
+
+        # a= dest, b= coleccion/objeto, indice/prop
+        elif op == 'getprop':
+            quads.append(('getprop', b, c, a))
+
+        # a = destino, b =tam
+        elif op == 'length':
+            quads.append(('length', b, None, a))
+
+        elif op in ('func','endfunc','class','endclass'):
+            quads.append((op, a, None, None))
+        else:
+            # conserva el orden crudo
+            quads.append((op, a, b, c))
+    return quads
+
+
+def print_quads(quads, max_width=18):
+    def s(x):
+        return str(x)
+
+    def crop(txt, w):
+        txt = s(txt)
+        return txt if len(txt) <= w else txt[: max(1, w - 1)] + "…"
+
+    headers = ["operador", "arg1", "arg2", "result"]
+    rows = [(op, x, y, r) for (op, x, y, r) in quads]
+
+    # Ancho por columna
+    widths = []
+    for col in range(4):
+        content_len = max([len(s(headers[col]))] + [len(s(row[col])) for row in rows]) if rows else len(headers[col])
+        widths.append(min(content_len, max_width))
+
+    def fmt_row(tup):
+        return " | ".join(crop(tup[i], widths[i]).ljust(widths[i]) for i in range(4))
+
+    sep = "-+-".join("-" * w for w in widths)
+
+    # Print
+    print(fmt_row(tuple(headers)))
+    print(sep)
+    for row in rows:
+        print(fmt_row(row))

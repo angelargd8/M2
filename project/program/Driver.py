@@ -6,7 +6,7 @@ from AstBuilder import AstBuilder
 from AstVisualization import render_ast
 from SemanticAnalyzer import SemanticAnalyzer
 from codeGen import CodeGen
-from IR import print_ir
+from IR import print_ir, to_quads, print_quads
 
 def parse(argv):
     input_stream = FileStream(argv[1], encoding='utf-8')
@@ -46,16 +46,20 @@ def main(argv):
     else:
         print(">> Chequeo semántico sin errores!")
         
-        # Generación de código intermedio (tres direcciones)
+        # Generación de código intermedio/tres direcciones
         gen = CodeGen(symtab=analyzer.symtab)
         ir = gen.generate(ast)
 
         print("== IR (tac) ==")
         print_ir(ir)
 
+        print("\n== quads ==")
+        quads = to_quads(ir)
+        print_quads(quads)
+
         # Guardar el código intermedio en un archivo
         with open("./output/program.tac", "w") as f:
-            for i in ir:
+            for i in quads:
                 f.write(repr(i) + "\n")
 
     
