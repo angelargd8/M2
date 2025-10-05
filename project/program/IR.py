@@ -118,6 +118,20 @@ def print_ir(ir):
         if op == 'endclass':
             print(f"endclass  # {a}\n")
             continue
+
+        # memoria
+        if op == 'enter':
+            print(f"enter {a}")
+            continue
+        if op == 'leave':
+            print("leave")
+            continue
+        if op == 'load':
+            print(f"{a} = MEM[{b}+{c}]")
+            continue
+        if op == 'store':
+            print(f"MEM[{a}+{b}] = {c}")
+            continue
         
         # default: imprimir todo
         print(f"{op} {a} {b} {c}".strip())
@@ -200,8 +214,16 @@ def to_quads(ir):
 
         elif op in ('func','endfunc','class','endclass'):
             quads.append((op, a, None, None))
+
+        elif op in ('enter','leave'):
+            quads.append((op, a, None, None))
+        elif op == 'load':
+            quads.append(('load', b, c, a)) # (base,off)->dst
+        elif op == 'store':
+            quads.append(('store', a, b, c)) # (base,off)<-src
+
         else:
-            # conserva el orden crudo
+            # conserva el orden original
             quads.append((op, a, b, c))
     return quads
 

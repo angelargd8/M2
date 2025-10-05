@@ -17,8 +17,12 @@ class CodeGen:
         self.label_id=0
         self.symtab = symtab
         self.current_func: Optional[str] = None
+        self.current_func_sym = None
         self.current_class: Optional[str] = None
         self.loop_stack = [] #cada item (Lcond, Lend, Lcontinue)
+        # nombres de registros para el backend
+        self.FP = "FP"
+        self.GP = "GP"
 
     # helpers
 
@@ -37,6 +41,42 @@ class CodeGen:
         self.visit(ast)
         return self.code
     
+    def _funcsym(self):
+        return self.current_func_sym
+        # obtiene el FunctionSymbol actual
+
+    def _addr_of_var(self, name: str):
+        """
+        Devuelve dirección lógica de 'name' como (base, offset, kind):
+        kind ∈ {"local","param","global"}
+        """
+        f = self._funcsym()
+        if f:
+            if name in (f.local_offsets or {}):
+                return (self.FP, f.local_offsets[name], "local")
+            if name in (f.param_offsets or {}):
+                return (self.FP, f.param_offsets[name], "param")
+        # global
+        return (self.GP, name, "global")
+
+    def _field_offset(self, obj_node, field_name: str) -> int:
+        # inferir tipo del objeto desde symtab/clase actual
+        # cuando el objeto es 'this':
+        if obj_node.__class__.__name__ == "This" and self.current_class:
+            T = self.symtab.types.get(self.current_class)
+        else:
+            # si es Var, el analizador tipó esa variable; puedes buscar su TypeSymbol en la tabla:
+            T = None
+            if obj_node.__class__.__name__ == "Var":
+                sym = self.symtab.current_scope.resolve(obj_node.name) if self.symtab.current_scope else None
+                T = getattr(sym, 'type', None)
+        # fallback: por nombre calificado
+        if not T and self.current_class:
+            T = self.symtab.types.get(self.current_class)
+        # lee _field_offsets
+        offmap = getattr(T, "_field_offsets", {}) if T else {}
+        return offmap.get(field_name, 0)
+
 
     # dispatcher - pasador
 
@@ -84,10 +124,14 @@ class CodeGen:
         #casos lvalue
         t = node.target.__class__.__name__
         if t== "Var":
-            self.emit('copy', node.target.name, rhs)
+            base, off, kind = self._addr_of_var(node.target.name)
+            self.emit('store', base, off, rhs)
+            return
         elif t == "Member":
             obj = self.visit(node.target.object)
-            self.emit('setprop', obj, node.target.name, rhs)
+            off = self._field_offset(node.target.object, node.target.name)
+            self.emit('store', obj, str(off), rhs)
+            return
         elif t == "Index":
             arr = self.visit(node.target.seq)
             idx = self.visit(node.target.index)
@@ -275,15 +319,19 @@ class CodeGen:
         return dst
     
     def visit_Var(self, node):
+        base, off, kind = self._addr_of_var(node.name)
         t = self.new_temp()
-        self.emit('copy', t, node.name)
+        # si es global y el backend carga por etiqueta, usar (GP, etiqueta)
+        self.emit('load', t, base, off)
         return t
     
     def visit_Member(self, node):
-        obj = self.visit(node.object)
-        t = self.new_temp()
-        self.emit('getprop', t, obj, node.name)
-        return t
+        base_obj = self.visit(node.object)  # temp con puntero/base del objeto
+        off = self._field_offset(node.object, node.name)
+        dst = self.new_temp()
+        # asumimos que 'base_obj' es la dirección base del objeto
+        self.emit('load', dst, base_obj, str(off))  # dst = *(base + off)
+        return dst
 
     def visit_Index(self, node):
         arr = self.visit(node.seq)
@@ -455,17 +503,32 @@ class CodeGen:
             endfunc  # <nombre>
         """
         fname = node.name if not self.current_class else f"{self.current_class}.{node.name}"
-        # marca inicio
+        # busca FunctionSymbol con ese nombre calificado
+        f = self.symtab.global_scope.resolve(fname)
+        if not f:
+            # intenta sin calificar si es top-level
+            f = self.symtab.global_scope.resolve(node.name)
+
         self.emit('func', fname)
         prev_func = self.current_func
+        prev_sym  = self.current_func_sym
         self.current_func = fname
+        self.current_func_sym = f
+
+        # prologo: enter con frame size
+        framesz = getattr(f, 'frame_size', 0) or 0
+        self.emit('enter', framesz)
+
         try:
             # Los parámetros en  AST ya son variables visibles en el cuerpo,
             # así que no hace falta generar nada especial aquí.
             # Visita el cuerpo (Block)
             self.visit(node.body)
         finally:
+            # epilogo
+            self.emit('leave')
             self.current_func = prev_func
+            self.current_func_sym = prev_sym
             # marca fin
             self.emit('endfunc', fname)
 
