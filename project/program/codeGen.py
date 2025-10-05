@@ -18,6 +18,7 @@ class CodeGen:
         self.symtab = symtab
         self.current_func: Optional[str] = None
         self.current_class: Optional[str] = None
+        self.loop_stack = [] #cada item (Lcond, Lend, Lcontinue)
 
     # helpers
 
@@ -119,69 +120,91 @@ class CodeGen:
 
     def visit_While(self, node):
         Lcond = self.new_label('Lcond')
-        Lbody = self.new_label('Lbody')
         Lend  = self.new_label('Lend')
+        self.loop_stack.append((Lcond, Lend, Lcond))
         self.emit('label', Lcond)
         cond = self.visit(node.condition)
         self.emit('iffalse_goto', cond, Lend)
-        self.emit('label', Lbody)
         self.visit(node.body)
         self.emit('goto', Lcond)
         self.emit('label', Lend)
+        self.loop_stack.pop()
 
     def visit_DoWhile(self, node):
         Lbody = self.new_label('Lbody')
         Lcond = self.new_label('Lcond')
+        Lend  = self.new_label('Lend')
+        self.loop_stack.append((Lcond, Lend, Lcond))
         self.emit('label', Lbody)
         self.visit(node.body)
         self.emit('label', Lcond)
         cond = self.visit(node.condition)
         self.emit('if_goto', cond, Lbody)
+        self.emit('label', Lend)
+        self.loop_stack.pop()
 
     def visit_For(self, node):
+        if node.init: self.visit(node.init)
         Lcond = self.new_label('Lcond')
-        Lbody = self.new_label('Lbody')
+        Lstep = self.new_label('Lstep')
         Lend  = self.new_label('Lend')
-        if node.init: 
-            self.visit(node.init)
+        self.loop_stack.append((Lcond, Lend, Lstep))
         self.emit('label', Lcond)
         if node.condition:
             c = self.visit(node.condition)
             self.emit('iffalse_goto', c, Lend)
-        self.emit('label', Lbody)
         self.visit(node.body)
-        if node.step: 
-            self.visit(node.step)
+        self.emit('label', Lstep)
+        if node.step: self.visit(node.step)
         self.emit('goto', Lcond)
         self.emit('label', Lend)
+        self.loop_stack.pop()
+
+    def visit_Break(self, node):
+        if self.loop_stack:
+            _, Lend, _ = self.loop_stack[-1]
+            self.emit('goto', Lend)
+
+    def visit_Continue(self, node):
+        if self.loop_stack:
+            _, _, Lcont = self.loop_stack[-1]
+            self.emit('goto', Lcont)
 
     def visit_Foreach(self, node):
         # asumimos 'iter' es lista y generamos index-based loop
         arr = self.visit(node.iterable)
-        i = self.new_temp()
-        n = self.new_temp()
+        i   = self.new_temp()
+        n   = self.new_temp()
         self.emit('copy', i, '0')
         self.emit('length', n, arr)
+
         Lcond = self.new_label('Lcond')
-        Lbody = self.new_label('Lbody')
+        Lstep = self.new_label('Lstep')
         Lend  = self.new_label('Lend')
+        self.loop_stack.append((Lcond, Lend, Lstep))
+
         self.emit('label', Lcond)
         tcmp = self.new_temp()
-        self.emit('lt', tcmp, i, n)      # tcmp = i < n
+        self.emit('lt', tcmp, i, n)            # tcmp = i < n
         self.emit('iffalse_goto', tcmp, Lend)
+
         # item = arr[i]
-        item = node.name
-        ti = self.visit_IntLiteral_fake(i)   # truco para reusar el temp i (no real AST)
-        val = self.visit_Index_fake(arr, ti) # getidx(arr, i)
-        self.emit('copy', item, val)
-        self.emit('label', Lbody)
+        tmp = self.new_temp()
+        self.emit('getidx', tmp, arr, i)       # tmp = arr[i]
+        self.emit('copy', node.name, tmp)      # bind variable foreach
+
+        # body
         self.visit(node.body)
-        # i = i + 1
+
+        # step
+        self.emit('label', Lstep)
         t1 = self.new_temp()
         self.emit('add', t1, i, '1')
         self.emit('copy', i, t1)
         self.emit('goto', Lcond)
+
         self.emit('label', Lend)
+        self.loop_stack.pop()
 
 
     def visit_TryCatch(self, node):
@@ -286,26 +309,35 @@ class CodeGen:
         return t
     
     def visit_Call(self, node):
+        # evalúa argumentos en orden y emite 'param'
+        argvals = []
+
+        for a in node.args:
+            v = self.visit(a)
+            self.emit('param', v)  # (op='param', a=v)
+            argvals.append(v)
+        for v in argvals:
+            # AQUI DEBERIA DE IR EL RECICLAJE
+            pass
+
+        dst = self.new_temp()
+
         # dos formas: Var o Member
         if node.callee.__class__.__name__ == "Var":
-            for a in node.args:
-                self.emit('param', self.visit(a))
-            dst = self.new_temp()
             self.emit('call', dst, node.callee.name, len(node.args))
             return dst
         elif node.callee.__class__.__name__ == "Member":
             # método: pasar 'this' como primer parámetro
             obj = self.visit(node.callee.object)
             self.emit('param', obj)
-            for a in node.args:
-                self.emit('param', self.visit(a))
-            dst = self.new_temp()
-            self.emit('call', dst, f'{self._infer_obj_name(node.callee.object)}.{node.callee.name}', 1+len(node.args))
+            # a=dst, b=Clase.metodo (o calificador inferido), c=nargs
+            self.emit('call', dst,
+                    f"{self._infer_obj_name(node.callee.object)}.{node.callee.name}",
+                    1 + len(node.args))
             return dst
         # fallback
-        for a in node.args:
-            self.visit(a)
-        return None
+        self.emit('call', dst, '<fun>', len(node.args))
+        return dst
 
     def _infer_obj_name(self, obj_node) -> str:
         """
@@ -332,6 +364,12 @@ class CodeGen:
         return "obj"
 
     def visit_BinOp(self, node):
+
+        if node.op == '&&':
+            return self._gen_logical_and(node.left, node.right)
+        if node.op == '||':
+            return self._gen_logical_or(node.left, node.right)
+        
         opmap = {
             '+': 'add', '-': 'sub', '*': 'mul', '/': 'div', '%': 'mod',
             '==': 'eq', '!=': 'ne', '<': 'lt', '<=': 'le', '>': 'gt', '>=': 'ge',
@@ -340,8 +378,32 @@ class CodeGen:
         a = self.visit(node.left)
         b = self.visit(node.right)
         dst = self.new_temp()
-        self.emit(opmap[node.op], dst, a, b)
+        self.emit(opmap[node.op], dst, a, b)   # a=dst, b=lhs, c=rhs
         return dst
+    
+    def _gen_logical_and(self, left, right):
+        # t = 0; if !left goto Lend; t = right; Lend:
+        t    = self.new_temp()
+        Lend = self.new_label('Land_end')
+        self.emit('copy', t, '0')
+        a = self.visit(left)
+        self.emit('iffalse_goto', a, Lend)
+        b = self.visit(right)
+        self.emit('copy', t, b)
+        self.emit('label', Lend)
+        return t
+
+    def _gen_logical_or(self, left, right):
+        # t = 1; if left goto Lend; t = right; Lend:
+        t    = self.new_temp()
+        Lend = self.new_label('Lor_end')
+        self.emit('copy', t, '1')
+        a = self.visit(left)
+        self.emit('if_goto', a, Lend)   # si tiene solo 'iffalse_goto', usa eq/!eq
+        b = self.visit(right)
+        self.emit('copy', t, b)
+        self.emit('label', Lend)
+        return t
     
     def visit_UnOp(self, node):
         x = self.visit(node.expr)

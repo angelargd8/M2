@@ -65,8 +65,9 @@ class AstBuilder(CompiscriptVisitor):
         if len(exps) >= 2:
             lhs = self.visit(exps[0])
             idx = self.visit(exps[1])
+            rhs = self.visit(exps[2]) if len(exps) >= 3 else None
             return Assign(target=Index(lhs, idx), expr=rhs)
-        
+            
         # Fallback por seguridad aunque no debería llegar aquí
         name = ctx.Identifier().getText() if ctx.Identifier() else "<anon>"
         rhs  = self.visit(exps[0]) if len(exps) else None

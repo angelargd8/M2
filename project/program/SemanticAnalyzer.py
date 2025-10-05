@@ -303,7 +303,7 @@ class SemanticAnalyzer:
 
         init_type = None
         if node.init is not None:
-            init_type = self._infer_expr_type(node.init)
+            init_type = self._infer_expr_type(node.init, expected=vtype)
 
         if node.is_const and node.init is None:
             self.error(f"Constante '{node.name}' debe inicializarse en su declaración.", node)
@@ -400,9 +400,12 @@ class SemanticAnalyzer:
         # obj.prop = expr
         if target.__class__.__name__ == "Member":
             obj_t = self._infer_expr_type(target.object)
-            val_t = self._infer_expr_type(node.expr)
             cname = obj_t.name if obj_t else None
             prop_t = self._lookup_prop_type(cname, target.name) if cname else None
+
+            # tipar el RHS con expected=prop_t
+            val_t = self._infer_expr_type(node.expr, expected=prop_t)
+
             if cname and prop_t is None:
                 self.error(f"Propiedad '{target.name}' no existe en '{cname}'.", node)
             elif prop_t and val_t and prop_t != val_t:
@@ -418,15 +421,19 @@ class SemanticAnalyzer:
             idx_t = self._infer_expr_type(target.index)
             if idx_t and idx_t.name != "int":
                 self.error(f"Índice debe ser int, es {idx_t.name}.", target.index)
-            val_t = self._infer_expr_type(node.expr)
 
-            # si conocemos el tipo de elemento, validar
+            # tipo de elemento conocido (si la secuencia es list<elem>)
+            elem_t = None
             if seq_t and seq_t.name == "list" and seq_t.elem:
                 elem_t = seq_t.elem
-                if val_t and elem_t != val_t:
-                    # permitir int -> float cuando elem es float
-                    if not (elem_t.name == "float" and val_t.name == "int"):
-                        self.error(f"Asignación incompatible al elemento: se esperaba {elem_t}, obtuvo {val_t}.", node)
+
+            # expected=elem_t (si lo conocemos)
+            val_t = self._infer_expr_type(node.expr, expected=elem_t)
+
+            if elem_t and val_t and elem_t != val_t:
+                # permitir int -> float cuando elem es float
+                if not (elem_t.name == "float" and val_t.name == "int"):
+                    self.error(f"Asignación incompatible al elemento: se esperaba {elem_t}, obtuvo {val_t}.", node)
             return
 
         # asignación simple
@@ -446,8 +453,9 @@ class SemanticAnalyzer:
             if sym.const and sym.initialized:
                 self.error(f"No se puede reasignar const '{name}'.", node)
 
-            val_t = self._infer_expr_type(node.expr)
             var_t = sym.type
+            val_t = self._infer_expr_type(node.expr, expected=var_t)
+
             if val_t and var_t and val_t != var_t:
                 if not (var_t.name == "float" and val_t.name == "int"):
                     self.error(f"Asignación incompatible: '{name}' es {var_t}, valor es {val_t}.", node)
@@ -588,7 +596,7 @@ class SemanticAnalyzer:
             if expected.name != "void":
                 self.error(f"Se esperaba retornar {expected} pero se retornó vacío.", node)
             return
-        actual = self._infer_expr_type(node.expr)
+        actual = self._infer_expr_type(node.expr, expected=expected)
 
         if actual and expected and actual != expected:
             # permitir int -> float
@@ -598,7 +606,7 @@ class SemanticAnalyzer:
     # --------------------------- inferencia tipos ------------------------
 
     # infiere el tipo de una expresión
-    def _infer_expr_type(self, node) -> Optional[TypeSymbol]:
+    def _infer_expr_type(self, node, expected: Optional[TypeSymbol] = None) -> Optional[TypeSymbol]:
         if node is None:
             return None
 
@@ -616,15 +624,33 @@ class SemanticAnalyzer:
         if tname == "NullLiteral":
             return None
         if tname == "ListLiteral":
+            # Caso 1: lista vacía  si nos dieron un expected=list<T>
+            if len(node.elements) == 0:
+                if expected and expected.name == "list" and getattr(expected, "elem", None):
+                    return TypeSymbol("list", elem=expected.elem)
+                # Sin expected, no se puede saber el elemento: list<?>
+                return TypeSymbol("list", elem=None)
+
+            # Caso 2: lista no vacía  unifica elementos como ya hacías
             elem_t: Optional[TypeSymbol] = None
             for e in node.elements:
-                et = self._infer_expr_type(e)
+                et = self._infer_expr_type(e)  # aquí no pasamos expected
                 elem_t = self._unify_types(elem_t, et)
                 if elem_t is None and et is not None:
-                    # elementos incompatibles
                     self.error("Elementos de la lista con tipos incompatibles.", e)
-                    # continúa para reportar más, pero mantén None
-            return TypeSymbol("list", elem=elem_t)
+            list_t = TypeSymbol("list", elem=elem_t)
+
+            # Si además nos dieron un expected=list<U>, valida compatibilidad (int->float permitido)
+            if expected and expected.name == "list" and getattr(expected, "elem", None) and elem_t:
+                U = expected.elem
+                T = elem_t
+                if U != T and not (U.name == "float" and T.name == "int"):
+                    self.error(f"Se esperaba list<{U}>, obtuviste list<{T}>.", node)
+                    return list_t  # devolvemos lo inferido para no romper otras comprobaciones
+        
+                return TypeSymbol("list", elem=U)
+
+            return list_t
 
         # variables
         # resuelve las variables en cadena de scopes
