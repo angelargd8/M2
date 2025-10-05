@@ -22,6 +22,9 @@ class TypeSymbol:
     name: str
     # Para listas tipadas como: list<elem>
     elem: Optional["TypeSymbol"] = None
+    fields: Optional[Dict[str,'TypeSymbol']] = None  # para clases
+    size: Optional[int] = None            # tamaño en bytes 
+    align: int = 4                        # alineación por defecto
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, TypeSymbol):
@@ -43,6 +46,9 @@ class VariableSymbol:
     decl_node: Any = None
     line: int = -1
     col: int = -1
+    storage: str = "stack"   # "global"|"stack"|"param"|"field"
+    offset: int = 0          # relativo a FP (stack/param) o a base de objeto (field)
+    seg: Optional[str] = None  # por si se usa ".data/.bss"para globals
 
 # representa una funcion en la tabla de simbolos
 @dataclass
@@ -56,6 +62,11 @@ class FunctionSymbol:
     decl_node: Any = None
     line: int = -1
     col: int = -1
+    label: Optional[str] = None
+    frame_size: int = 0
+    param_offsets: Dict[str,int] = None
+    local_offsets: Dict[str,int] = None
+    has_this: bool = False   # métodos
 
 # representa un alcance en la tabla de simbolos
 # crea un scope con padre opcional
@@ -155,3 +166,25 @@ class SymbolTable:
     # resuelve un simbolo desde el scope actual hacia arriba
     def resolve(self, name: str) -> Optional[Any]:
         return self.current_scope.resolve(name)
+
+
+PRIM_SIZES = {"int":4, "float":8, "bool":1, "string":8, "void":0}
+
+def sizeof(t: TypeSymbol) -> int:
+    if t is None: return 0
+    if t.name in PRIM_SIZES:
+        return PRIM_SIZES[t.name]
+    if t.name == "list":
+        # modelo: cabecera fija (ptr + length) 2*8 = 16 bytes
+        return 16
+    if t.fields is not None:
+        # clase/struct: suma de fields con alineación
+        off = 0
+        for fname, ftype in t.fields.items():
+            sz = sizeof(ftype); al = max(1, ftype.align)
+            off = ( (off + (al-1)) // al ) * al
+            off += sz
+        # alinea tamaño final
+        return off
+    # fallback
+    return 8

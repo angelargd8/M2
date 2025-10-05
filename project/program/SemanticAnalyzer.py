@@ -10,7 +10,7 @@ Los métodos _visit_ para cada tipo del nodo de AST realiza las validaciones cor
 Y reporta errores semánticos con información de la línea y columna. 
 """
 from typing import List, Optional, Any, Dict
-from SymbolTable import SymbolTable, Scope, VariableSymbol, FunctionSymbol, TypeSymbol
+from SymbolTable import SymbolTable, Scope, VariableSymbol, FunctionSymbol, TypeSymbol, sizeof
 
 
 # crea el analizador con la tabla de simbolos 
@@ -31,9 +31,16 @@ class SemanticAnalyzer:
 
         if "list" not in self.symtab.types:
             self.symtab.types["list"] = TypeSymbol("list")
+        
+        self._classes_seen_order: List[str] = []   # para finalizar layouts al terminar collect_signatures
+        self._alloc_local_stack: List[Any] = []    # pila de closures alloc_local para locals por función
+
 
     # ---------------------------- utilidades ----------------------------
     
+    def field_offset(self, class_t: TypeSymbol, field: str) -> int:
+        return getattr(class_t, "_field_offsets", {}).get(field, 0)
+
     #agrega un error con [line:col]
     def error(self, msg: str, node: Optional[Any] = None):
         line = getattr(node, "line", None)
@@ -122,6 +129,35 @@ class SemanticAnalyzer:
                 self._collect_func_signature(stmt)
             elif cname == "ClassDecl":
                 self._collect_class_signatures(stmt)
+                self._classes_seen_order.append(stmt.name)
+
+        # finalizar layouts de todas las clases base a derivada
+        seen = set()
+        for cname in self._classes_seen_order:
+            self._finalize_class_layout_recursive(cname, seen)
+
+    def _finalize_class_layout(self, cname:str):
+        fields = self.class_props.get(cname, {})
+        if cname in self.symtab.types:
+            T = self.symtab.types[cname]
+            T.fields = fields
+            off = 0; offsets = {}
+            for fname, ftype in fields.items():
+                al = max(1, ftype.align); off = ((off + al -1)//al)*al
+                offsets[fname] = off
+                off += sizeof(ftype)
+            T.size = off
+            T._field_offsets = offsets  # guardarlo aqui
+
+    def _finalize_class_layout_recursive(self, cname: str, seen: set):
+        if cname in seen:
+            return
+        base = self.class_base.get(cname)
+        if base:
+            self._finalize_class_layout_recursive(base, seen)
+        self._finalize_class_layout(cname)
+        seen.add(cname)
+
 
     #colecta firmas de clase
     # registra: class_base[clase] =base
@@ -329,6 +365,9 @@ class SemanticAnalyzer:
             decl_node=node,
         )
         self.symtab.define_variable(sym)
+        # si estamos dentro de función, asigna offset de local
+        if self._alloc_local_stack:
+            self._alloc_local_stack[-1](sym)
 
     # entra al scope de la funcion
     # inyecta parametros
@@ -341,12 +380,38 @@ class SemanticAnalyzer:
         # resolver desde el scope actual (permite funciones locales) y global si aplica
         f = self.symtab.current_scope.resolve(node.name)
         if not isinstance(f, FunctionSymbol):
-            # tal vez es método calificado en global
             f = self.symtab.global_scope.resolve(qualname)
             if not isinstance(f, FunctionSymbol):
                 self.error(f"Función '{qualname}' no resolvible.", node)
                 return
 
+        #layout de parámetros (rel FP hacia arriba)
+        param_off: Dict[str, int] = {}
+        sp = 16  # FP+16 (ret 8 + old FP 8) — ajusta a tu ABI si difiere
+        for p in f.params:
+            sz = sizeof(p.type)
+            al = max(1, getattr(p.type, "align", 4))
+            sp = ((sp + al - 1) // al) * al
+            p.storage = "param"
+            p.offset = sp
+            param_off[p.name] = sp
+            sp += sz
+
+        #closure para asignar locales (rel FP hacia abajo)
+        local_off: Dict[str, int] = {}
+        cur = 0  # bytes usados hacia abajo
+
+        def alloc_local(vsym: VariableSymbol):
+            nonlocal cur
+            sz = sizeof(vsym.type)
+            al = max(1, getattr(vsym.type, "align", 4))
+            cur = ((cur + al - 1) // al) * al
+            cur += sz
+            vsym.storage = "stack"
+            vsym.offset = -cur
+            local_off[vsym.name] = vsym.offset
+
+        #  scope función  inyección de params  visita cuerpo 
         self.symtab.push_scope(f"func {qualname}")
         try:
             for p in f.params:
@@ -357,23 +422,36 @@ class SemanticAnalyzer:
                     p.initialized = True
 
             self._func_ret_stack.append(f.return_type)
-            body = node.body
-            if body is None:
-                return
-            if body.__class__.__name__ == "Block":
-                self._visit(body)
-            elif isinstance(body, list):
-                self.symtab.push_scope("func-body")
-                try:
-                    for s in body:
-                        self._visit(s)
-                finally:
-                    self.symtab.pop_scope()
-            else:
-                self._visit(body)
+
+            # Permite que _visit_VarDecl asigne offset a cada local
+            self._alloc_local_stack.append(alloc_local)
+            try:
+                body = node.body
+                if body is None:
+                    pass
+                elif body.__class__.__name__ == "Block":
+                    self._visit(body)
+                elif isinstance(body, list):
+                    self.symtab.push_scope("func-body")
+                    try:
+                        for s in body:
+                            self._visit(s)
+                    finally:
+                        self.symtab.pop_scope()
+                else:
+                    self._visit(body)
+            finally:
+                self._alloc_local_stack.pop()
         finally:
             self._func_ret_stack.pop()
             self.symtab.pop_scope()
+
+        # cierra metadata del frame en el FunctionSymbol
+        f.param_offsets = param_off
+        f.local_offsets = local_off
+        # Alinear frame a 16 bytes
+        f.frame_size = ((cur + 15) // 16) * 16
+        f.label = qualname
 
 
     # entra al scope de clase y visita propiedades y metodos
