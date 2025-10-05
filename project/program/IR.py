@@ -22,7 +22,7 @@ def make(op, a=None, b= None, c= None):
     return Instr(op, a, b, c)
 
 
-def print_ir(ir):
+def print_ir(ir, symtab=None):
     # simbolos
     OP_SYM = {
         'add': '+', 'sub': '-', 'mul': '*', 'div': '/', 'mod': '%',
@@ -30,6 +30,113 @@ def print_ir(ir):
         'and': '&&', 'or': '||',
     }
 
+    def _is_int(x: str) -> bool:
+        try:
+            int(str(x))
+            return True
+        except Exception:
+            return False
+
+    def _fmt_addr(base: Optional[str], off: Optional[str]) -> str:
+        b = "" if base is None else str(base)
+        o = "" if off  is None else str(off)
+        if not b and not o: return "[]"
+        if b and not o:     return f"{b}"
+        if not b and o:     return f"{o}"
+        if b == "GP" and not _is_int(o):
+            return f"{o}"
+        return f"{b}+{o}".replace("+-", "-")
+
+    # -------- estado contextual para anotaciones --------
+    current_func_name = None
+    current_func_sym  = None
+    current_class_name = None
+    rev_params: dict[int,str] = {}
+    rev_locals: dict[int,str] = {}
+    rev_fields: dict[int,str] = {}   # offset -> fieldName (solo clase actual)
+    temps_from_this: set[str] = set()  # temps que provienen de 'this'
+
+    def _reset_rev_maps():
+        nonlocal rev_params, rev_locals, rev_fields, temps_from_this
+        rev_params, rev_locals, rev_fields = {}, {}, {}
+        temps_from_this = set()
+
+    def _lookup_func_symbol(fname: str):
+        if symtab is None:
+            return None
+        f = symtab.global_scope.resolve(fname)
+        if f is None:
+            f = symtab.global_scope.resolve(fname.split('.')[-1])  # fallback
+        return f
+
+    def _build_rev_maps(fsym):
+        _reset_rev_maps()
+        if not fsym:
+            return
+        # params (offsets positivos)
+        for name, off in (getattr(fsym, 'param_offsets', {}) or {}).items():
+            try:
+                rev_params[int(off)] = name
+            except Exception:
+                pass
+        # locals (offsets negativos)
+        for name, off in (getattr(fsym, 'local_offsets', {}) or {}).items():
+            try:
+                rev_locals[int(off)] = name
+            except Exception:
+                pass
+
+    def _build_field_rev_map_for_class(cname: Optional[str]):
+        nonlocal rev_fields
+        rev_fields = {}
+        if not symtab or not cname:
+            return
+        T = symtab.types.get(cname)
+        if not T:
+            return
+        offmap = getattr(T, "_field_offsets", {}) or {}
+        for fname, off in offmap.items():
+            try:
+                rev_fields[int(off)] = fname
+            except Exception:
+                pass
+
+    def _comment_for_addr(base, off) -> str:
+        # Anotación para variables (FP +/-)
+        if base == "FP" and _is_int(off):
+            ioff = int(off)
+            if ioff >= 0 and ioff in rev_params:
+                return f" ; {rev_params[ioff]}"
+            if ioff < 0 and ioff in rev_locals:
+                return f" ; {rev_locals[ioff]}"
+        # Anotación para globals (GP + etiqueta)
+        if base == "GP" and off and not _is_int(off):
+            return f" ; {off}"
+        # Anotación para this-campos cuando base es temp from 'this'
+        if base in temps_from_this and _is_int(off) and rev_fields:
+            ioff = int(off)
+            if ioff in rev_fields:
+                return f" ; this.{rev_fields[ioff]}"
+        return ""
+
+    def _comment_for_prop(obj_base, field_name: str) -> str:
+        # Si es 'this', intenta anexar también el offset: ; this.x @+OFF
+        if obj_base == "this" and rev_fields:
+            # busca offset por nombre
+            for off, fname in rev_fields.items():
+                if fname == field_name:
+                    return f" ; this.{field_name} @+{off}"
+            return f" ; this.{field_name}"
+        # Si el objeto es un temp que proviene de this
+        if obj_base in temps_from_this and rev_fields:
+            for off, fname in rev_fields.items():
+                if fname == field_name:
+                    return f" ; this.{field_name} @+{off}"
+            return f" ; this.{field_name}"
+        # Fallback: solo el nombre del campo
+        return f" ; .{field_name}"
+    
+    # imprimir
     for ins in ir:
         op, a, b, c = ins.op, ins.a, ins.b, ins.c
 
@@ -42,6 +149,9 @@ def print_ir(ir):
         # Asignación simple
         if op == 'copy':
             print(f"{a} = {b}")
+            # rastrea temps que vienen de 'this'
+            if str(b) == "this":
+                temps_from_this.add(str(a))
             continue
 
         # Parámetros y llamadas
@@ -94,10 +204,12 @@ def print_ir(ir):
             print(f"{a} = {b}[{c}]")
             continue
         if op == 'setprop':
-            print(f"{a}.{b} = {c}")
+            cm = _comment_for_prop(a, b)   # objeto=a, campo=b
+            print(f"{a}.{b} = {c}{cm}")
             continue
         if op == 'getprop':
-            print(f"{a} = {b}.{c}")
+            cm = _comment_for_prop(b, c)   # objeto=b, campo=c
+            print(f"{a} = {b}.{c}{cm}")
             continue
         if op == 'length':
             print(f"{a} = len({b})")
@@ -105,12 +217,24 @@ def print_ir(ir):
 
         # funciones
         if op == 'func':
+            current_func_name = a
+            current_func_sym  = _lookup_func_symbol(current_func_name)
+            # clase actual, si el nombre es Clase.metodo
+            current_class_name = a.split('.')[0] if '.' in str(a) else None
+            _build_rev_maps(current_func_sym)
+            _build_field_rev_map_for_class(current_class_name)
+            temps_from_this = set()
             print(f"\nfunc {a}:")
             continue
+
         if op == 'endfunc':
             print(f"endfunc  # {a}\n")
+            current_func_name = None
+            current_func_sym  = None
+            current_class_name = None
+            _reset_rev_maps()
             continue
-
+    
         # clases
         if op == 'class':
             print(f"\nclass {a}:")
@@ -127,10 +251,14 @@ def print_ir(ir):
             print("leave")
             continue
         if op == 'load':
-            print(f"{a} = MEM[{b}+{c}]")
+            addr = _fmt_addr(b, c)
+            cmnt = _comment_for_addr(b, c)
+            print(f"{a} = MEM[{addr}]{cmnt}")
             continue
         if op == 'store':
-            print(f"MEM[{a}+{b}] = {c}")
+            addr = _fmt_addr(a, b)
+            cmnt = _comment_for_addr(a, b)
+            print(f"MEM[{addr}] = {c}{cmnt}")
             continue
         
         # default: imprimir todo

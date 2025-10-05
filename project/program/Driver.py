@@ -51,7 +51,7 @@ def main(argv):
         ir = gen.generate(ast)
 
         print("== IR (tac) ==")
-        print_ir(ir)
+        print_ir(ir, symtab=analyzer.symtab)
 
         print("\n== quads ==")
         quads = to_quads(ir)
