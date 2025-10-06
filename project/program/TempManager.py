@@ -6,6 +6,7 @@ class TempManager:
     def __init__(self):
         self.pool = TempPool()
         self.refcount={} # t -> numero de referencias pendientes
+        self.label_count = 0 
 
     def new_temp(self):
         t = self.pool.get()
@@ -22,3 +23,9 @@ class TempManager:
             if self.refcount[t] <= 0:
                 self.pool.release(t)
                 del self.refcount[t]
+    
+    def newLabel(self):
+        #Genera una etiqueta única (L1, L2, L3, ...)
+        self.label_count += 1
+        return f"L{self.label_count}"
+    

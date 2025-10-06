@@ -7,6 +7,7 @@ from AstVisualization import render_ast
 from SemanticAnalyzer import SemanticAnalyzer
 from codeGen import CodeGen
 from IR import print_ir, to_quads, print_quads
+from IRGenerator import IRGenerator
 
 def parse(argv):
     input_stream = FileStream(argv[1], encoding='utf-8')
@@ -27,13 +28,14 @@ def parse(argv):
 def main(argv):
     
     tree = parse(argv)
-    # AST - Abstract Syntax Tree
+    # construccion del AST - Abstract Syntax Tree
     ast = AstBuilder().visit(tree)
     # print(ast)
     render_ast(ast, "./output/ast")
     path = "./output/ast.png"
     print("la foto de AST esta en la carpeta output:", path)
 
+    # analisis semantico
     analyzer = SemanticAnalyzer()
     analyzer.collect_signatures(ast)       # Pasada 1
     errors = analyzer.check(ast)           # Pasada 2
@@ -47,14 +49,12 @@ def main(argv):
         print(">> Chequeo semántico sin errores!")
         
         # Generación de código intermedio/tres direcciones
-        gen = CodeGen(symtab=analyzer.symtab)
-        ir = gen.generate(ast)
+        ir_gen = IRGenerator()
+        # genera los quads recorriendo el AST
+        ir_gen.visit(tree) 
+        quads = ir_gen.quads
 
-        print("== IR (tac) ==")
-        print_ir(ir, symtab=analyzer.symtab)
-
-        print("\n== quads ==")
-        quads = to_quads(ir)
+        print("\n== IR (TAC) ==")
         print_quads(quads)
 
         # Guardar el código intermedio en un archivo
@@ -62,7 +62,6 @@ def main(argv):
             for i in quads:
                 f.write(repr(i) + "\n")
 
-    
 
 if __name__ == '__main__':
     main(sys.argv)
