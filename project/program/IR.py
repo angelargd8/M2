@@ -1,4 +1,5 @@
 """
+Representacion Intermedia
 Modelo de codigo de tres direcciones
 
 """
