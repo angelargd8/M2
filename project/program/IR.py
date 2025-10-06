@@ -266,94 +266,107 @@ def print_ir(ir, symtab=None):
         print(f"{op} {a} {b} {c}".strip())
         
 
+def print_ir_modern(ir):
+    """
+    Imprime un IR plano y legible, diseñado para el flujo de IRGenerator.
+    Ejemplo de salida:
+        t1 = a
+        t2 = b
+        t3 = t1 + t2
+        t = t3
+        print t
+    """
+    if not ir:
+        print("(IR vacío)")
+        return
+
+    OP_MAP = {
+        '+': '+', '-': '-', '*': '*', '/': '/',
+        '%': '%', '==': '==', '!=': '!=',
+        '<': '<', '<=': '<=', '>': '>', '>=': '>=',
+    }
+
+    for ins in ir:
+        # soporta tuplas o Instr
+        op = ins.op if hasattr(ins, "op") else ins[0]
+        a  = ins.a  if hasattr(ins, "a") else ins[1]
+        b  = ins.b  if hasattr(ins, "b") else ins[2]
+        c  = ins.c  if hasattr(ins, "c") else ins[3]
+
+        # limpia valores None
+        def fmt(x):
+            return "" if x is None else str(x)
+
+        op, a, b, c = fmt(op), fmt(a), fmt(b), fmt(c)
+
+        # === formato según tipo de operación ===
+
+        # operadores binarios
+        if op in ['+', '-', '*', '/', '%']:
+            print(f"{c} = {a} {op} {b}")
+            continue
+
+        # copy literal o variable
+        if op == 'copy':
+            print(f"{c} = {a}")
+            continue
+
+        # load variable
+        if op == 'load':
+            print(f"{c} = {a}")
+            continue
+
+        # store variable
+        if op == 'store':
+            print(f"{c} = {a}")
+            continue
+
+        # print statement
+        if op == 'print':
+            print(f"print {a}")
+            continue
+
+        # labels y saltos
+        if op == 'label':
+            print(f"{a}:")
+            continue
+        if op == 'goto':
+            print(f"goto {c}")
+            continue
+        if op == 'if_true':
+            print(f"if {a} goto {c}")
+            continue
+        if op == 'if_false':
+            print(f"if !{a} goto {c}")
+            continue
+
+        # llamada a función
+        if op == 'param':
+            print(f"param {a}")
+            continue
+        if op == 'call':
+            nargs = b or "?"
+            if c:
+                print(f"{c} = call {a}, nargs={nargs}")
+            else:
+                print(f"call {a}, nargs={nargs}")
+            continue
+
+        # default
+        print(f"{op} {a} {b} {c}".strip())
+
+
+
 # convert to quads
 # vamos a seguir la estructura como lo vimos en clase: op, arg1, arg2 y result
 def to_quads(ir):
+    #Convierte la representación del IR en lista de tuplas uniformes
     quads = []
     for ins in ir:
-        op, a, b, c =  ins.op, ins.a, ins.b, ins.c
-
-        #operaciones binarias
-        if op in ('add','sub','mul','div','mod','eq','ne','lt','le','gt','ge','and','or'):
-            quads.append((op, b,c, a))
-
-        # copy, a = dst, b = src
-        elif op =='copy':
-            quads.append(('copy', b, None, a))
-
-        # a= valor del parametro
-        elif op=='param':
-            quads.append(('param', a, None, None))
-
-        #a = dst , b = nombreFunc, c = nargs
-        elif op =='call':
-            quads.append(('call', b, c, a))
-
-        # a = valor
-        elif op=='ret':
-            quads.append(('ret', a, None, None))
-        
-        # void 
-        elif op =='ret_void':
-            quads.append(('ret', None, None, None))
-
-        # a = etiqueta
-        elif op=='label':
-            quads.append(('label', a, None, None))
-        
-        # a = etiqueta
-        elif op =='goto':
-            quads.append(('goto', a, None, None))
-
-        # a = condicion, b = etiqueta
-        elif op == 'if_goto':
-            quads.append(('if', a, None, b))
-
-        # a = condicion, b = etiqueta   
-        elif op =='iffalse_goto':
-            quads.append(('iffalse', a, None, b))
-        
-        # a = destino, b = tipo/tam/secuencia
-        elif op =='new':
-            quads.append(('new', b, None, a))
-        
-        # a = destino, b = tipo/tam/secuencia
-        elif op == 'newlist':
-            quads.append(('newlist', b, None, a))
-
-        # a = coleccion/obj b = indice / propiedad, c= valor
-        elif op == 'setidx':
-            quads.append(('setidx', a, b, c))
-
-        # a= dest, b= coleccion/objeto, indice/prop
-        elif op == 'getidx':
-            quads.append(('getidx', b, c, a))
-
-        # a= dest, b= coleccion/objeto, indice/prop
-        elif op == 'setprop':
-            quads.append(('setprop', a, b, c))
-
-        # a= dest, b= coleccion/objeto, indice/prop
-        elif op == 'getprop':
-            quads.append(('getprop', b, c, a))
-
-        # a = destino, b =tam
-        elif op == 'length':
-            quads.append(('length', b, None, a))
-
-        elif op in ('func','endfunc','class','endclass'):
-            quads.append((op, a, None, None))
-
-        elif op in ('enter','leave'):
-            quads.append((op, a, None, None))
-        elif op == 'load':
-            quads.append(('load', b, c, a)) # (base,off)->dst
-        elif op == 'store':
-            quads.append(('store', a, b, c)) # (base,off)<-src
-
-        else:
-            # conserva el orden original
-            quads.append((op, a, b, c))
+        if isinstance(ins, tuple):
+            quads.append(ins)
+        else:  # objeto Instr
+            quads.append((ins.op, ins.a, ins.b, ins.c))
     return quads
 
 

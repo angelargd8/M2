@@ -6,7 +6,7 @@ from AstBuilder import AstBuilder
 from AstVisualization import render_ast
 from SemanticAnalyzer import SemanticAnalyzer
 from codeGen import CodeGen
-from IR import print_ir, to_quads, print_quads
+from IR import print_ir, to_quads, print_quads, print_ir_modern
 from IRGenerator import IRGenerator
 
 def parse(argv):
@@ -51,10 +51,18 @@ def main(argv):
         # Generación de código intermedio/tres direcciones
         ir_gen = IRGenerator()
         # genera los quads recorriendo el AST
-        ir_gen.visit(tree) 
-        quads = ir_gen.quads
+        ir = ir_gen.generate(tree)
+        print("== IR (TAC) ==")
+        # #------ esta parte es solo para ver bonito el TAC
+        # # realmente no es necesario y se puede comentar
+        # # es para tener idea para ver el tac sin garbage colector
+        # gen_print = CodeGen(symtab=analyzer.symtab)
+        # ir_print = gen_print.generate(ast)
+        # print_ir(ir_print, symtab=analyzer.symtab)
+        # #----------------------------------------------------
 
-        print("\n== IR (TAC) ==")
+        print("\n== quads ==")
+        quads = to_quads(ir)
         print_quads(quads)
 
         # Guardar el código intermedio en un archivo

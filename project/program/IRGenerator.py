@@ -1,6 +1,7 @@
 
 from gen.CompiscriptVisitor import CompiscriptVisitor
 from TempManager import TempManager
+from IR import Instr
 
 class IRGenerator(CompiscriptVisitor):
     def __init__(self):
@@ -8,7 +9,15 @@ class IRGenerator(CompiscriptVisitor):
         self.tm = TempManager()
 
     def emit(self, op, a=None, b= None, r=None):
-        self.quads.append((op, a, b, r))
+        self.quads.append(Instr(op, a, b, r))
+
+    def generate(self, tree):
+        self.visit(tree)
+        return self.quads
+
+    def visitProgram(self, ctx):
+        super().visitProgram(ctx) 
+        return self.quads
 
     # expresiones literales
     def visitLiteralExpr(self, ctx):
