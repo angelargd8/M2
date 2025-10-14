@@ -37,6 +37,9 @@ def main(argv):
 
     # analisis semantico
     analyzer = SemanticAnalyzer()
+
+
+
     analyzer.collect_signatures(ast)       # Pasada 1
     errors = analyzer.check(ast)           # Pasada 2
 
