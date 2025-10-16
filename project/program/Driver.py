@@ -37,7 +37,7 @@ def main(argv):
 
     # analisis semantico
     analyzer = SemanticAnalyzer()
-
+    analyzer.symtab.print_table()
 
 
     analyzer.collect_signatures(ast)       # Pasada 1

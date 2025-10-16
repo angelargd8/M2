@@ -74,7 +74,11 @@ class Scope:
     def __init__(self, name: str, parent: Optional['Scope'] = None):
         self.name = name
         self.parent = parent
-        self.symbols: Dict[str, Any] = {}  # puede contener VariableSymbol o FunctionSymbol
+        self.symbols: Dict[str, Any] = {}
+        self.children: List['Scope'] = []   # <-- lista de hijos
+        if parent:
+            parent.children.append(self)   # <-- registrar hijo en el padre
+
 
     #define un simbolo nuevo en el scope actual
     def define(self, sym):
@@ -166,6 +170,35 @@ class SymbolTable:
     # resuelve un simbolo desde el scope actual hacia arriba
     def resolve(self, name: str) -> Optional[Any]:
         return self.current_scope.resolve(name)
+    
+    def print_table(self):
+        """Imprime toda la tabla de símbolos empezando desde el global."""
+        print("\n===== TABLA DE SÍMBOLOS =====")
+        self._print_scope(self.global_scope, indent=0)
+        print("==============================\n")
+
+    def _print_scope(self, scope: 'Scope', indent: int = 0):
+        """Imprime recursivamente los símbolos definidos en un scope."""
+        prefix = "  " * indent
+        print(f"{prefix}Scope: {scope.name}")
+
+        if not scope.symbols:
+            print(f"{prefix}  (vacío)")
+        else:
+            for name, sym in scope.symbols.items():
+                if isinstance(sym, VariableSymbol):
+                    print(f"{prefix}  Var: {sym.name}  -> tipo: {sym.type}, const: {sym.const}, init: {sym.initialized}")
+                elif isinstance(sym, FunctionSymbol):
+                    params = ", ".join(f"{p.name}:{p.type}" for p in sym.params)
+                    print(f"{prefix}  Func: {sym.name}({params}) -> {sym.return_type}")
+                else:
+                    print(f"{prefix}  {name}: {sym}")
+
+        # buscar scopes hijos (si los hay)
+        # no los tienes almacenados directamente, así que podrías extender Scope para guardarlos:
+        for child in getattr(scope, "children", []):
+            self._print_scope(child, indent + 1)
+
 
 
 PRIM_SIZES = {"int":4, "float":8, "bool":1, "string":8, "void":0}

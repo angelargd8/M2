@@ -239,11 +239,7 @@ class IRGenerator(CompiscriptVisitor):
 
     # control de flujo - while
     def visitWhileStatement(self, ctx):
-        """
-        while (condition) {
-            // body
-        }
-        """
+        
         # Crear etiquetas
         label_start = self.tm.newLabel()
         label_end = self.tm.newLabel()
@@ -276,11 +272,7 @@ class IRGenerator(CompiscriptVisitor):
 
     # control de flujo - for
     def visitForStatement(self, ctx):
-        """
-        for (init; condition; update) {
-            // body
-        }
-        """
+        
         # 1. Inicialización
         if ctx.variableDeclaration():
             self.visit(ctx.variableDeclaration())
@@ -329,24 +321,7 @@ class IRGenerator(CompiscriptVisitor):
 
     # control de flujo - foreach
     def visitForeachStatement(self, ctx):
-        """
-        foreach (item in collection) {
-            // body
-        }
-        
-        Se traduce aproximadamente a:
-        t_collection = evaluar collection
-        t_index = 0
-        t_length = length(t_collection)
-        label_start:
-            if t_index >= t_length goto label_end
-            item = t_collection[t_index]
-            // body
-        label_update:
-            t_index = t_index + 1
-            goto label_start
-        label_end:
-        """
+     
         item_name = ctx.Identifier().getText()
         
         # Evaluar la colección
@@ -417,9 +392,7 @@ class IRGenerator(CompiscriptVisitor):
 
     # break statement
     def visitBreakStatement(self, ctx):
-        """
-        break; -> salta al final del loop más cercano
-        """
+        
         if not self.loop_stack:
             raise Exception("break statement outside of loop")
         
@@ -429,9 +402,7 @@ class IRGenerator(CompiscriptVisitor):
 
     # continue statement
     def visitContinueStatement(self, ctx):
-        """
-        continue; -> salta al update (for) o inicio (while) del loop más cercano
-        """
+        
         if not self.loop_stack:
             raise Exception("continue statement outside of loop")
         

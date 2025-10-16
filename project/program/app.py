@@ -4,6 +4,8 @@ from gen.CompiscriptLexer import CompiscriptLexer
 from gen.CompiscriptParser import CompiscriptParser
 from AstBuilder import AstBuilder
 from SemanticAnalyzer import SemanticAnalyzer
+from IRGenerator import IRGenerator
+from IR import to_quads
 
 # Configurar el diseño en formato "wide"
 st.set_page_config(layout="wide")
@@ -43,13 +45,24 @@ if st.button("Run"):
 
                 if semantic_errors:
                     st.error("Errores semánticos encontrados:")
-                    st.write(f"- {semantic_errors}")
                     for error in semantic_errors:
-                        # st.error(f"- {error}")
                         st.write(f"- {error}")
                 else:
                     st.success("¡Chequeo semántico sin errores!")
+                    
+                    # Generación de código intermedio/tres direcciones
+                    ir_gen = IRGenerator()
+                    ir = ir_gen.generate(tree)
+                    quads = to_quads(ir)
+                    
+                    # Guardar el TAC en un archivo
+                    with open("./output/program.tac", "w") as f:
+                        for i in quads:
+                            f.write(repr(i) + "\n")
+                    
+                    st.success("Código intermedio (TAC) generado y guardado en output/program.tac")
                     st.write("Árbol de análisis generado con éxito.")
+
         except Exception as e:
             st.error(f"Error al procesar el código: {e}")
     else:
