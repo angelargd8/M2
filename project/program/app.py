@@ -35,7 +35,7 @@ with col2:
     if uploaded_file is not None:
         file_contents = uploaded_file.getvalue().decode("utf-8")
         st.session_state.code_input = file_contents
-        st.write(file_contents)
+        # st.write(file_contents)
 
 
 # Botón para ejecutar el código
