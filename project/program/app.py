@@ -14,17 +14,36 @@ st.set_page_config(layout="wide")
 st.title("IDE")
 
 # Descripción
-st.write("Escribe tu código en el área de entrada, presiona **Run** para analizarlo, y revisa el resultado o los errores en la salida.")
+st.write("Escribe tu código en el área de entrada o sube un archivo, presiona **Run** para analizarlo, y revisa el resultado o los errores en la salida.")
 
-# Área de entrada para el código
-code_input = st.text_area("Escribe tu código aquí:", height=300, placeholder="x = 10;\n")
+# Inicializar el código de entrada
+if 'code_input' not in st.session_state:
+    st.session_state.code_input = ""
+
+# Crear dos columnas para la entrada
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Entrada por texto")
+    text_input = st.text_area("Escribe tu código aquí:", height=300, placeholder="x = 10;\n")
+    if text_input:
+        st.session_state.code_input = text_input
+
+with col2:
+    st.subheader("Subir archivo")
+    uploaded_file = st.file_uploader("Elige un archivo", type=['txt'])
+    if uploaded_file is not None:
+        file_contents = uploaded_file.getvalue().decode("utf-8")
+        st.session_state.code_input = file_contents
+        st.write(file_contents)
+
 
 # Botón para ejecutar el código
 if st.button("Run"):
-    if code_input.strip():  # Verifica que el área de entrada no esté vacía
+    if st.session_state.code_input and st.session_state.code_input.strip():
         try:
             # Procesar el código con ANTLR
-            input_stream = InputStream(code_input)
+            input_stream = InputStream(st.session_state.code_input)
             lexer = CompiscriptLexer(input_stream)
             stream = CommonTokenStream(lexer)
             parser = CompiscriptParser(stream)
@@ -66,7 +85,7 @@ if st.button("Run"):
         except Exception as e:
             st.error(f"Error al procesar el código: {e}")
     else:
-        st.warning("Por favor, escribe algo de código antes de presionar Run.")
+        st.warning("Por favor, escribe algo de código o sube un archivo antes de presionar Run.")
 
 # Espacio para mostrar el resultado o errores
 st.subheader("Salida")

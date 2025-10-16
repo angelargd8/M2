@@ -66,6 +66,10 @@ COPY requirements.txt .
 # Not production-intended, never do this, this is just a simple example
 RUN pip install -r requirements.txt --break-system-packages 
 
+# Crear carpeta de configuración de Streamlit con permisos
+RUN mkdir -p /program/.streamlit && chmod -R 777 /program/.streamlit
+ENV STREAMLIT_HOME=/program/.streamlit
+
 # Set user
 ARG USER=appuser
 ARG UID=1001
