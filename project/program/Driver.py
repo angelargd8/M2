@@ -51,7 +51,7 @@ def main(argv):
         print(">> Chequeo semántico sin errores!")
         
         # Generación de código intermedio/tres direcciones
-        ir_gen = IRGenerator()
+        ir_gen = IRGenerator(symtab=analyzer.symtab)
         # genera los quads recorriendo el AST
         ir = ir_gen.generate(tree)
         print("== IR (TAC) ==")
