@@ -533,16 +533,17 @@ class IRGenerator(CompiscriptVisitor):
         else:
             self.emit("ret", None, None, None)
 
-    # # try/catch
-    # def visitTryCatchStatement(self, ctx):
-    #     try_label = self.tm.newLabel()
-    #     end_label = self.tm.newLabel()
-    #     catch_label = self.tm.newLabel()
+    # try/catch
+    def visitTryCatchStatement(self, ctx):
+        try_label = self.tm.newLabel()
+        end_label = self.tm.newLabel()
+        catch_label = self.tm.newLabel()
 
-    #     self.emit("try_begin", None, None, try_label)
-    #     self.visit(ctx.tryBlock())
-    #     self.emit("try_end", None, None, end_label)
+        self.emit("try_begin", None, None, try_label)
+        self.visit(ctx.block(0))  # bloque try
+        self.emit("try_end", None, None, end_label)
 
-    #     self.emit("catch_begin", ctx.Identifier().getText(), None, catch_label)
-    #     self.visit(ctx.catchBlock())
-    #     self.emit("catch_end", None, None, end_label)
+        self.emit("catch_begin", ctx.Identifier().getText(), None, catch_label)
+        self.visit(ctx.block(1))  # bloque catch
+        self.emit("catch_end", None, None, end_label)
+        
