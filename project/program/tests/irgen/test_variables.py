@@ -1,8 +1,8 @@
-# tests/irgen/test_variables.py
+# declaracion y asignacion de variables
 def test_variable_declaration_and_assignment(build_ir):
     code = """
-    var x = 10;
-    var y = 20;
+    var x: integer = 10;
+    var y: integer = 20;
     x = y;
     """
     quads = build_ir(code)

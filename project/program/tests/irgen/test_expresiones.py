@@ -1,7 +1,8 @@
+# expresiones aritmeticas
 def test_expresiones_aritmeticas(build_ir):
     code = """
-    var a = 3 + 5 * 2;
-    var b = (a - 4) / 2;
+    var a: integer = 3 + 5 * 2;
+    var b: integer = (a - 4) / 2;
     """
     quads = build_ir(code)
 

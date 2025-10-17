@@ -1,3 +1,4 @@
+# recursion
 def test_funcion_recursiva(build_ir):
     code = """
     function fact(n: integer): integer {

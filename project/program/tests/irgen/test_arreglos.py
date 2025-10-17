@@ -1,6 +1,7 @@
+# arreglos
 def test_arreglos(build_ir):
     code = """
-    var arr = [1, 2, 3];
+    let arr: integer[] = [1, 2, 3];
     print(arr[1]);
     """
     quads = build_ir(code)

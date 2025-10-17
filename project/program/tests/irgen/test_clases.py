@@ -1,13 +1,16 @@
+# clase y objetos
 def test_clases_y_objetos(build_ir):
     code = """
     class Point {
-        var x;
-        var y;
-        function init(a, b) {
+        let x: integer =0;
+        var y: integer = 0;
+
+        function init(a: integer, b: integer): void {
             this.x = a;
             this.y = b;
         }
     }
+
     var p = new Point();
     p.init(3, 4);
     """

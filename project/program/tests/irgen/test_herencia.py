@@ -1,3 +1,4 @@
+# herencia
 def test_herencia(build_ir):
     code = """
     class Animal { function speak() { print("..."); } }

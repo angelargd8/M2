@@ -1,7 +1,8 @@
+# expresiones logicas
 def test_expresiones_logicas(build_ir):
     code = """
-    var a = 5 < 10 && true;
-    var b = a || false;
+    var a: boolean = 5 < 10 && true;
+    var b: boolean = a || false;
     """
     quads = build_ir(code)
 

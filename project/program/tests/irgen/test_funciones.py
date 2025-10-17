@@ -1,6 +1,7 @@
+# funciones y parametros
 def test_funcion_y_parametros(build_ir):
     code = """
-    function add(a, b) { return a + b; }
+    function add(a: integer, b: integer): integer { return a + b; }
     var result = add(3, 4);
     """
     quads = build_ir(code)

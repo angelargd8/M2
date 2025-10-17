@@ -1,6 +1,7 @@
+# while y for
 def test_if_while_for(build_ir):
     code = """
-    var x = 0;
+    var x: integer = 0;
     if (x < 5) { print(x); }
     while (x < 3) { x = x + 1; }
     for (var i = 0; i < 3; i = i + 1) { print(i); }
