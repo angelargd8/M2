@@ -18,12 +18,12 @@ class TempManager:
             self.refcount[t] = self.refcount.get(t, 0) + 1
 
     def release_ref(self, t):
-        if t: 
+        if t and t in self.refcount:
             self.refcount[t] -= 1
             if self.refcount[t] <= 0:
                 self.pool.release(t)
                 del self.refcount[t]
-    
+        
     def newLabel(self):
         #Genera una etiqueta única (L1, L2, L3, ...)
         self.label_count += 1

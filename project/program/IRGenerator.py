@@ -289,24 +289,52 @@ class IRGenerator(CompiscriptVisitor):
 
         # Iterar sobre los miembros
         for member in ctx.classMember():
+            # Atributos 
             if hasattr(member, 'variableDeclaration') and member.variableDeclaration():
                 attr_ctx = member.variableDeclaration()
                 attr_name = attr_ctx.Identifier().getText()
-                
+
                 # Evaluar inicializador
                 if attr_ctx.initializer():
                     t_init = self.visit(attr_ctx.initializer().expression())
                 else:
+                    # Si no tiene inicializador, usar valor por defecto según tipo
                     t_init = self.tm.new_temp()
-                    default_val = '""' if attr_ctx.type_().getText() == 'string' else '0'
+
+                    # Detectar tipo según la gramática
+                    type_node = None
+                    if hasattr(attr_ctx, "typeAnnotation") and attr_ctx.typeAnnotation():
+                        # el tipo está dentro de typeAnnotation
+                        type_ann = attr_ctx.typeAnnotation()
+                        if hasattr(type_ann, "type_") and type_ann.type_():
+                            type_node = type_ann.type_()
+                        elif hasattr(type_ann, "type") and type_ann.type():
+                            type_node = type_ann.type()
+                    elif hasattr(attr_ctx, "type_") and attr_ctx.type_():
+                        type_node = attr_ctx.type_()
+                    elif hasattr(attr_ctx, "type") and attr_ctx.type():
+                        type_node = attr_ctx.type()
+
+                    type_text = type_node.getText() if type_node else None
+
+                    # Asignar valor por defecto según el tipo detectado
+                    if type_text == 'string':
+                        default_val = '""'
+                    elif type_text == 'boolean':
+                        default_val = 'false'
+                    else:
+                        default_val = '0'
+
                     self.emit("copy", default_val, None, t_init)
 
-                # Guardar atributo en la instancia
+                # guardar atributo en la instancia (ej. t1.name)
                 self.emit("store", t_init, None, f"{this_temp}.{attr_name}")
 
+            # Métodos
             elif hasattr(member, 'functionDeclaration') and member.functionDeclaration():
-                # Llamamos a visit() normalmente; los métodos usan self.current_this
+                # Los metodos usan self.current_this
                 self.visit(member.functionDeclaration())
+
 
         # Restaurar this anterior
         self.current_this = prev_this
@@ -394,11 +422,26 @@ class IRGenerator(CompiscriptVisitor):
 
             # Propiedad
             elif first == ".":
+                # propiedad segura
                 prop = sop.getChild(1).getText()
-                t_out = self.tm.new_temp()
-                base = acc_val or getattr(self, 'current_this', None)
-                self.emit("getprop", base, prop, t_out)
-                acc_kind, acc_val = "value", t_out
+
+                # carga la base en un nuevo temporal
+                base = acc_val
+                if base is None and hasattr(self, 'current_this'):
+                    base = self.current_this
+
+                # pedir un nuevo temporal para la base si viene directo del current_this
+                if base == self.current_this:
+                    base_temp = self.tm.new_temp()
+                    self.emit("copy", base, None, base_temp)
+                else:
+                    base_temp = base
+
+                # generar el acceso a propiedad
+                t_prop = self.tm.new_temp()
+                self.emit("getprop", base_temp, prop, t_prop)
+
+                acc_kind, acc_val = "value", t_prop
 
             else:
                 raise Exception(f"Sufijo no reconocido: '{first}'")
@@ -611,18 +654,29 @@ class IRGenerator(CompiscriptVisitor):
             self.emit("ret", None, None, None)
     
 
-    # # try/catch
-    # def visitTryCatchStatement(self, ctx):
-    #     try_label = self.tm.newLabel()
-    #     end_label = self.tm.newLabel()
-    #     catch_label = self.tm.newLabel()
+    # try/catch
+    def visitTryCatchStatement(self, ctx):
+        try_label = self.tm.newLabel()
+        end_label = self.tm.newLabel()
+        catch_label = self.tm.newLabel()
 
-    #     self.emit("try_begin", None, None, try_label)
-    #     self.visit(ctx.tryBlock())
-    #     self.emit("try_end", None, None, end_label)
+        self.emit("try_begin", None, None, try_label)
+        self.visit(ctx.block(0))  # bloque try
+        self.emit("try_end", None, None, end_label)
 
-    #     self.emit("catch_begin", ctx.Identifier().getText(), None, catch_label)
-    #     self.visit(ctx.catchBlock())
-    #     self.emit("catch_end", None, None, end_label)
+        self.emit("catch_begin", ctx.Identifier().getText(), None, catch_label)
+        self.visit(ctx.block(1))  # bloque catch
+        self.emit("catch_end", None, None, end_label)
 
+    def visitPropertyAccessExpr(self, ctx):
+        # Evalua el objeto (this o variable)
+        obj_temp = self.visit(ctx.left)
+        prop_name = ctx.Identifier().getText()
+        # genera un nuevo temporal para almacenar la propiedad
+        temp = self.tm.new_temp()
+
+        # emite el cuadruplo
+        self.emit('getprop', obj_temp, prop_name, temp)
+
+        return temp
     
