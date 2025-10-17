@@ -171,23 +171,25 @@ class IRGenerator(CompiscriptVisitor):
     def visitVariableDeclaration(self, ctx):
         name = ctx.Identifier().getText()
         symbol = self.symtab.resolve(name) if self.symtab else None
-        if isinstance(symbol, VariableSymbol):
+
+        # Determinar dirección: atributo o variable local
+        if hasattr(self, 'current_this') and self.current_this and symbol and getattr(symbol, "is_attribute", False):
+            addr = f"{self.current_this}.{name}"
+        elif isinstance(symbol, VariableSymbol):
             if symbol.storage in ("stack", "param"):
                 addr = f"FP[{symbol.offset}]"
             else:
                 addr = symbol.name
         else:
             addr = name
+
         if ctx.initializer():
             t_expr = self.visit(ctx.initializer().expression())
             self.tm.add_ref(t_expr)
-            self.emit("store", t_expr, None, f"{name}({addr})")
+            self.emit("store", t_expr, None, addr)
             self.tm.release_ref(t_expr)
-        else:
-            pass
-            # no se declara un none porque no tiene sentido 
-            # self.emit("store", "None", None, addr)
         return None
+
 
     def visitConstantDeclaration(self, ctx):
     # Obtener nombre del identificador
@@ -256,7 +258,10 @@ class IRGenerator(CompiscriptVisitor):
 
         symbol = self.symtab.resolve(name) if self.symtab else None
 
-        if isinstance(symbol, VariableSymbol):
+        # Determinar si es atributo de instancia
+        if hasattr(self, 'current_this') and self.current_this and symbol and getattr(symbol, "is_attribute", False):
+            addr = f"{self.current_this}.{name}"
+        elif isinstance(symbol, VariableSymbol):
             if symbol.storage in ("stack", "param"):
                 addr = f"FP[{symbol.offset}]"
             else:
@@ -268,6 +273,47 @@ class IRGenerator(CompiscriptVisitor):
         self.emit("store", t_expr, None, addr)
         self.tm.release_ref(t_expr)
         return None
+    
+    def visitClassDeclaration(self, ctx):
+        # Nombre de la clase
+        class_name = ctx.Identifier()[0].getText() if isinstance(ctx.Identifier(), list) else ctx.Identifier().getText()
+
+        # Crear temporal que representa la instancia (this)
+        this_temp = self.tm.new_temp()
+        self.emit("alloc", class_name, None, this_temp)
+        self.emit("store", this_temp, None, f"this_{class_name}")
+
+        # Guardar el previous this para restaurar después
+        prev_this = getattr(self, 'current_this', None)
+        self.current_this = this_temp
+
+        # Iterar sobre los miembros
+        for member in ctx.classMember():
+            if hasattr(member, 'variableDeclaration') and member.variableDeclaration():
+                attr_ctx = member.variableDeclaration()
+                attr_name = attr_ctx.Identifier().getText()
+                
+                # Evaluar inicializador
+                if attr_ctx.initializer():
+                    t_init = self.visit(attr_ctx.initializer().expression())
+                else:
+                    t_init = self.tm.new_temp()
+                    default_val = '""' if attr_ctx.type_().getText() == 'string' else '0'
+                    self.emit("copy", default_val, None, t_init)
+
+                # Guardar atributo en la instancia
+                self.emit("store", t_init, None, f"{this_temp}.{attr_name}")
+
+            elif hasattr(member, 'functionDeclaration') and member.functionDeclaration():
+                # Llamamos a visit() normalmente; los métodos usan self.current_this
+                self.visit(member.functionDeclaration())
+
+        # Restaurar this anterior
+        self.current_this = prev_this
+
+        return this_temp
+
+
 
     def visitPrintStatement(self, ctx):
         t_expr = self.visit(ctx.expression())
@@ -277,14 +323,15 @@ class IRGenerator(CompiscriptVisitor):
 
     # manejo de llamadas (leftHandSide) !!
     def visitLeftHandSide(self, ctx):
-        #Permite llamadas, indexación y acceso a propiedades.
-
+        # base_text puede ser variable, función o 'this'
         base_text = ctx.primaryAtom().getText()
         sym = self.symtab.resolve(base_text) if self.symtab else None
 
-        if isinstance(sym, FunctionSymbol):
-            acc_kind, acc_val = "func", (sym.label or sym.name)
-
+        # Determinar base inicial
+        if base_text == "this":
+            acc_kind, acc_val = "value", getattr(self, 'current_this', None)
+        elif isinstance(sym, FunctionSymbol):
+            acc_kind, acc_val = "func", sym.label or sym.name
         elif isinstance(sym, VariableSymbol):
             if sym.storage in ("stack", "param"):
                 addr = f"FP[{sym.offset}]"
@@ -297,6 +344,7 @@ class IRGenerator(CompiscriptVisitor):
             t0 = self.visit(ctx.primaryAtom())
             acc_kind, acc_val = "value", t0
 
+        # Aplicar sufijos (llamadas, index, propiedades)
         for sop in ctx.suffixOp():
             first = sop.getChild(0).getText()
 
@@ -311,7 +359,7 @@ class IRGenerator(CompiscriptVisitor):
 
                 func_sym = self.symtab.resolve(acc_val) if acc_kind == "func" else None
 
-                # Paso de parametros
+                # Pasar parámetros
                 if isinstance(func_sym, FunctionSymbol) and func_sym.param_offsets:
                     for i, (t_arg, p_sym) in enumerate(zip(args, func_sym.params)):
                         off = func_sym.param_offsets.get(p_sym.name, 8 * (i + 1))
@@ -322,7 +370,7 @@ class IRGenerator(CompiscriptVisitor):
                         self.emit("param", t_arg, None, f"p{i}")
                         self.tm.release_ref(t_arg)
 
-                # protocolo de llamada
+                # Protocolo de llamada
                 if isinstance(func_sym, FunctionSymbol):
                     self.emit("push", "FP", None, None)
                     self.emit("enter", func_sym.frame_size or 0, None, None)
@@ -337,18 +385,19 @@ class IRGenerator(CompiscriptVisitor):
 
                 acc_kind, acc_val = "value", t_res
 
-            # Indexacion 
+            # Indexación
             elif first == "[":
                 idx_t = self.visit(sop.expression())
                 t_out = self.tm.new_temp()
                 self.emit("getidx", acc_val, idx_t, t_out)
                 acc_kind, acc_val = "value", t_out
 
-            # Propiedad 
+            # Propiedad
             elif first == ".":
                 prop = sop.getChild(1).getText()
                 t_out = self.tm.new_temp()
-                self.emit("getprop", acc_val, prop, t_out)
+                base = acc_val or getattr(self, 'current_this', None)
+                self.emit("getprop", base, prop, t_out)
                 acc_kind, acc_val = "value", t_out
 
             else:
@@ -560,6 +609,7 @@ class IRGenerator(CompiscriptVisitor):
             self.emit("ret", value, None, None)
         else:
             self.emit("ret", None, None, None)
+    
 
     # # try/catch
     # def visitTryCatchStatement(self, ctx):
@@ -574,3 +624,5 @@ class IRGenerator(CompiscriptVisitor):
     #     self.emit("catch_begin", ctx.Identifier().getText(), None, catch_label)
     #     self.visit(ctx.catchBlock())
     #     self.emit("catch_end", None, None, end_label)
+
+    
