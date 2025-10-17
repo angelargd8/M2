@@ -181,7 +181,7 @@ class IRGenerator(CompiscriptVisitor):
         if ctx.initializer():
             t_expr = self.visit(ctx.initializer().expression())
             self.tm.add_ref(t_expr)
-            self.emit("store", t_expr, None, addr)
+            self.emit("store", t_expr, None, f"{name}({addr})")
             self.tm.release_ref(t_expr)
         else:
             pass
@@ -208,7 +208,7 @@ class IRGenerator(CompiscriptVisitor):
         self.tm.add_ref(t_expr)
 
         # Emitir el TAC para copiar el valor y almacenarlo
-        self.emit("store", t_expr, None, f"{name}({addr})")
+        self.emit("store", t_expr, None, f"{name}")
 
         # Liberar el temporal
         self.tm.release_ref(t_expr)
