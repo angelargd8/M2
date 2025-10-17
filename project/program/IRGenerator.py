@@ -219,6 +219,34 @@ class IRGenerator(CompiscriptVisitor):
 
         return None
 
+    # control de flujo - do-while
+    def visitDoWhileStatement(self, ctx):
+        # Crear etiquetas
+        label_start = self.tm.newLabel()
+        label_end = self.tm.newLabel()
+
+        # Agregar al stack de loops (para break/continue)
+        self.loop_stack.append((label_start, label_end, label_start))
+
+        # Etiqueta de inicio del ciclo
+        self.emit("label", label_start)
+
+        # Ejecutar el cuerpo
+        self.visit(ctx.block())
+
+        # Evaluar la condición al final
+        cond_temp = self.visit(ctx.expression())
+        self.tm.add_ref(cond_temp)
+
+        # Si la condición es verdadera, repetir el ciclo
+        self.emit("iftrue_goto", cond_temp, None, label_start)
+        self.tm.release_ref(cond_temp)
+
+        # Etiqueta de salida
+        self.emit("label", label_end)
+
+        # Remover del stack
+        self.loop_stack.pop()
 
 
     # asignacion x = expr
@@ -533,17 +561,16 @@ class IRGenerator(CompiscriptVisitor):
         else:
             self.emit("ret", None, None, None)
 
-    # try/catch
-    def visitTryCatchStatement(self, ctx):
-        try_label = self.tm.newLabel()
-        end_label = self.tm.newLabel()
-        catch_label = self.tm.newLabel()
+    # # try/catch
+    # def visitTryCatchStatement(self, ctx):
+    #     try_label = self.tm.newLabel()
+    #     end_label = self.tm.newLabel()
+    #     catch_label = self.tm.newLabel()
 
-        self.emit("try_begin", None, None, try_label)
-        self.visit(ctx.block(0))  # bloque try
-        self.emit("try_end", None, None, end_label)
+    #     self.emit("try_begin", None, None, try_label)
+    #     self.visit(ctx.tryBlock())
+    #     self.emit("try_end", None, None, end_label)
 
-        self.emit("catch_begin", ctx.Identifier().getText(), None, catch_label)
-        self.visit(ctx.block(1))  # bloque catch
-        self.emit("catch_end", None, None, end_label)
-        
+    #     self.emit("catch_begin", ctx.Identifier().getText(), None, catch_label)
+    #     self.visit(ctx.catchBlock())
+    #     self.emit("catch_end", None, None, end_label)
