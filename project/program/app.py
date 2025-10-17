@@ -31,7 +31,7 @@ with col1:
 
 with col2:
     st.subheader("Subir archivo")
-    uploaded_file = st.file_uploader("Elige un archivo", type=['txt'])
+    uploaded_file = st.file_uploader("Elige un archivo", type=['cps'])
     if uploaded_file is not None:
         file_contents = uploaded_file.getvalue().decode("utf-8")
         st.session_state.code_input = file_contents
