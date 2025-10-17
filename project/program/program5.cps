@@ -1,3 +1,5 @@
-const MAX_USERS: integer = 100;
-let a: integer= 4;
-let b: integer = 3;
+// while con condición boolean
+let i: integer = 0;
+while (i < 5) {  //  i<5 es boolean
+    i = i + 1;
+}
