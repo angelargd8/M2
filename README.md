@@ -68,6 +68,19 @@ tener instalado streamlit:
 ```
 pip install streamlit
 ```
+y pytest:
+```
+pip install pytest
+```
+
+Correr un test:
+```
+pytest -v -s tests/irgen/test_arreglos.py
+```
+Correr todos los test:
+```
+pytest -v -s tests/irgen/
+```
 
 Cambiar al shell root user 
 ```

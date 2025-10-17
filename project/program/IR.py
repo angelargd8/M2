@@ -16,8 +16,14 @@ class Instr:
     op: str
     a: Optional[str] = None
     b: Optional[str] = None
-    c: Optional[str] = None
+    result: Optional[str] = None
     #ej: (add, t1, t2, t3) == t1 = t2 + t3
+
+    @property
+    def r(self):
+        return self.result
+
+
 
 def make(op, a=None, b= None, c= None):
     return Instr(op, a, b, c)
