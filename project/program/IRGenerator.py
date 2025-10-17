@@ -525,3 +525,24 @@ class IRGenerator(CompiscriptVisitor):
         self.tm.release_ref(t_collection)
         self.loop_stack.pop()
 
+    # return statement
+    def visitReturnStatement(self, ctx):
+        value = self.visit(ctx.expression()) if ctx.expression() else None
+        if value:
+            self.emit("ret", value, None, None)
+        else:
+            self.emit("ret", None, None, None)
+
+    # # try/catch
+    # def visitTryCatchStatement(self, ctx):
+    #     try_label = self.tm.newLabel()
+    #     end_label = self.tm.newLabel()
+    #     catch_label = self.tm.newLabel()
+
+    #     self.emit("try_begin", None, None, try_label)
+    #     self.visit(ctx.tryBlock())
+    #     self.emit("try_end", None, None, end_label)
+
+    #     self.emit("catch_begin", ctx.Identifier().getText(), None, catch_label)
+    #     self.visit(ctx.catchBlock())
+    #     self.emit("catch_end", None, None, end_label)

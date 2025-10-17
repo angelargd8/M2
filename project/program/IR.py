@@ -372,7 +372,7 @@ def to_quads(ir):
         if isinstance(ins, tuple):
             quads.append(ins)
         else:  # objeto Instr
-            quads.append((ins.op, ins.a, ins.b, ins.c))
+            quads.append((ins.op, ins.a, ins.b, ins.r))
     return quads
 
 
