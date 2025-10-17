@@ -25,17 +25,31 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.subheader("Entrada por texto")
-    text_input = st.text_area("Escribe tu código aquí:", height=300, placeholder="x = 10;\n")
-    if text_input:
-        st.session_state.code_input = text_input
+    text_input = st.text_area(
+        "Escribe tu código aquí:",
+        value=st.session_state.code_input,
+        height=300,
+        placeholder="x = 10;\n"
+    )
+    st.session_state.code_input = text_input
 
 with col2:
     st.subheader("Subir archivo")
-    uploaded_file = st.file_uploader("Elige un archivo", type=['cps', 'txt'])
+    uploaded_file = st.file_uploader("Elige un archivo", type=['cps', 'txt'], key="file_uploader")
+
     if uploaded_file is not None:
+        # Leer contenido del archivo
         file_contents = uploaded_file.getvalue().decode("utf-8")
-        st.session_state.code_input = file_contents
-        # st.write(file_contents)
+        if st.session_state.code_input != file_contents:
+            st.session_state.code_input = file_contents
+            st.session_state.last_uploaded_file = uploaded_file.name
+            st.success(f"Archivo cargado: {uploaded_file.name}")
+    else:
+        # Si antes había un archivo y ahora no hay ninguno, limpiar todo
+        if "last_uploaded_file" in st.session_state:
+            st.session_state.code_input = ""
+            del st.session_state.last_uploaded_file
+            st.info("Archivo quitado. Área de texto vaciada.")
 
 
 # Botón para ejecutar el código
