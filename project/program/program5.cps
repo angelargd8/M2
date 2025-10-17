@@ -1,6 +1,3 @@
-let flag: boolean = true;
-
-// Condiciones deben ser boolean
-if (flag) {
-    print("Flag es verdadero");
-}
+const MAX_USERS: integer = 100;
+let a: integer= 4;
+let b: integer = 3;

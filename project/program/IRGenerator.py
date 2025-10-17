@@ -23,7 +23,6 @@ class IRGenerator(CompiscriptVisitor):
         super().visitProgram(ctx)
         return self.quads
 
-
     # expresiones literales
     def visitLiteralExpr(self, ctx):
         value = ctx.getText()
@@ -185,8 +184,42 @@ class IRGenerator(CompiscriptVisitor):
             self.emit("store", t_expr, None, addr)
             self.tm.release_ref(t_expr)
         else:
-            self.emit("store", "None", None, addr)
+            pass
+            # no se declara un none porque no tiene sentido 
+            # self.emit("store", "None", None, addr)
         return None
+
+    def visitConstantDeclaration(self, ctx):
+    # Obtener nombre del identificador
+        name = ctx.Identifier().getText()
+        
+        # Obtener símbolo asociado
+        symbol = self.symtab.resolve(name) if self.symtab else None
+        if isinstance(symbol, VariableSymbol):
+            if symbol.storage in ("stack", "param"):
+                addr = f"FP[{symbol.offset}]"
+            else:
+                addr = symbol.name
+        else:
+            addr = name
+
+        # Evaluar la expresión de inicialización
+        t_expr = self.visit(ctx.expression())
+        self.tm.add_ref(t_expr)
+
+        # Emitir el TAC para copiar el valor y almacenarlo
+        self.emit("store", t_expr, None, f"{name}({addr})")
+
+        # Liberar el temporal
+        self.tm.release_ref(t_expr)
+
+        # Marcar el símbolo como constante (si aplica)
+        if symbol:
+            symbol.const = True
+
+        return None
+
+
 
     # asignacion x = expr
     def visitAssignment(self, ctx):

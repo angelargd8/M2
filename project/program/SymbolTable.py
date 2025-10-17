@@ -49,6 +49,7 @@ class VariableSymbol:
     storage: str = "stack"   # "global"|"stack"|"param"|"field"
     offset: int = 0          # relativo a FP (stack/param) o a base de objeto (field)
     seg: Optional[str] = None  # por si se usa ".data/.bss"para globals
+    
 
 # representa una funcion en la tabla de simbolos
 @dataclass
@@ -76,6 +77,9 @@ class Scope:
         self.parent = parent
         self.symbols: Dict[str, Any] = {}
         self.children: List['Scope'] = []   # <-- lista de hijos
+
+        self.next_offset = 0  # ← contador de espacio de stack local
+
         if parent:
             parent.children.append(self)   # <-- registrar hijo en el padre
 
@@ -84,6 +88,12 @@ class Scope:
     def define(self, sym):
         if sym.name in self.symbols:
             raise Exception(f"Error: '{sym.name}' ya está definido en este alcance.")
+        
+        # Si es una variable local de stack → asignar offset automáticamente
+        if isinstance(sym, VariableSymbol) and sym.storage == "stack":
+            sym.offset = self.next_offset
+            self.next_offset += sizeof(sym.type)
+
         self.symbols[sym.name] = sym
 
     # busca un simbolo por cadena de scopez hasta la raiz
