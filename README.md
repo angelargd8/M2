@@ -1,4 +1,4 @@
-# [M2] Fase de Compilación: Generación de Código Intermedio
+# [M3] Fase de Compilación: Generación de Código
 
 ## Descripción del proyecto:
 
