@@ -5,8 +5,7 @@ from gen.CompiscriptParser import CompiscriptParser
 from AstBuilder import AstBuilder
 from AstVisualization import render_ast
 from SemanticAnalyzer import SemanticAnalyzer
-from codeGen import CodeGen
-from IR import print_ir, to_quads, print_quads, print_ir_modern
+from IR import to_quads, print_quads
 from IRGenerator import IRGenerator
 from MIPSCodeGen import MIPSCodeGen
 
