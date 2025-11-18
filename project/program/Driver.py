@@ -63,8 +63,8 @@ def main(argv):
         print("== IR (TAC) ==")
        
         print("\n== quads ==")
-        quads = to_quads(ir)
-        print_quads(quads)
+        quads = ir
+        print_quads(to_quads(quads))
 
         # Guardar el código intermedio en un archivo
         with open("./output/program.tac", "w") as f:
@@ -74,7 +74,7 @@ def main(argv):
 
 
         # -- generar mips --
-        mips_gen = MIPSCodeGen(quads, symtab=analyzer.symtab)
+        mips_gen = MIPSCodeGen(quads)
         mips_code = mips_gen.generate()
 
         with open("./output/program.s", "w") as f: 

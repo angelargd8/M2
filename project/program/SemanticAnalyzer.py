@@ -399,17 +399,24 @@ class SemanticAnalyzer:
 
         #closure para asignar locales (rel FP hacia abajo)
         local_off: Dict[str, int] = {}
-        cur = 0  # bytes usados hacia abajo
+        cur = 0  # bytes usados hacia abajo desde FP
 
         def alloc_local(vsym: VariableSymbol):
             nonlocal cur
             sz = sizeof(vsym.type)
-            al = max(1, getattr(vsym.type, "align", 4))
+            # Para stack, forzamos alineación a 4 bytes
+            al = max(4, getattr(vsym.type, "align", 4))
+
+            # Alinear la siguiente posición
             cur = ((cur + al - 1) // al) * al
-            cur += sz
+
+            # offset visible: distancia POSITIVA desde $fp
             vsym.storage = "stack"
-            vsym.offset = -cur
+            vsym.offset = cur          # luego se convertirá a -cur($fp)
             local_off[vsym.name] = vsym.offset
+
+            # avanzar el puntero de frame
+            cur += sz
 
         #  scope función  inyección de params  visita cuerpo 
         self.symtab.push_scope(f"func {qualname}")
