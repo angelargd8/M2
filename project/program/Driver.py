@@ -8,6 +8,7 @@ from SemanticAnalyzer import SemanticAnalyzer
 from codeGen import CodeGen
 from IR import print_ir, to_quads, print_quads, print_ir_modern
 from IRGenerator import IRGenerator
+from MIPSCodeGen import MIPSCodeGen
 
 def parse(argv):
     input_stream = FileStream(argv[1], encoding='utf-8')
@@ -27,6 +28,7 @@ def parse(argv):
 
 def main(argv):
     
+    # --- parse to ast ----
     tree = parse(argv)
     # construccion del AST - Abstract Syntax Tree
     ast = AstBuilder().visit(tree)
@@ -35,7 +37,9 @@ def main(argv):
     path = "./output/ast.png"
     print("la foto de AST esta en la carpeta output:", path)
 
-    # analisis semantico
+    # -----------------
+
+    # --- analisis semantico ---
     analyzer = SemanticAnalyzer()
 
 
@@ -49,20 +53,16 @@ def main(argv):
 
     else:
         print(">> Chequeo semántico sin errores!")
-        
+
+    # --------------------
+
+        # --- IR (tac) ---
         # Generación de código intermedio/tres direcciones
         ir_gen = IRGenerator(symtab=analyzer.symtab)
         # genera los quads recorriendo el AST
         ir = ir_gen.generate(tree)
         print("== IR (TAC) ==")
-        # #------ esta parte es solo para ver bonito el TAC
-        # # realmente no es necesario y se puede comentar
-        # # es para tener idea para ver el tac sin garbage colector
-        # gen_print = CodeGen(symtab=analyzer.symtab)
-        # ir_print = gen_print.generate(ast)
-        # print_ir(ir_print, symtab=analyzer.symtab)
-        # #----------------------------------------------------
-
+       
         print("\n== quads ==")
         quads = to_quads(ir)
         print_quads(quads)
@@ -71,6 +71,34 @@ def main(argv):
         with open("./output/program.tac", "w") as f:
             for i in quads:
                 f.write(repr(i) + "\n")
+        # -------------
+
+
+        # -- generar mips --
+        mips_gen = MIPSCodeGen(quads, symtab=analyzer.symtab)
+        mips_code = mips_gen.generate()
+
+        with open("./output/program.s", "w") as f: 
+            f.write(mips_code)
+        
+        print("\ncodigo mips guardado en ./output/program.s")
+
+        # -- cargar runtime --
+        try:
+            with open("./runtime.asm", "r") as f:
+                runtime_code = f.read()
+        except FileNotFoundError:
+            print("ERROR: No se encontró ./runtime.asm")
+            sys.exit(1)
+
+        # combinar runtime con el programa
+        final_code = runtime_code + "\n\n# ===== Compiscript Program =====\n\n" + mips_code
+
+        # Guardar final.s
+        with open("./output/final.s", "w") as f:
+            f.write(final_code)
+
+        print(">> Archivo final listo para SPIM/MARS: ./output/final.s")
 
 
 if __name__ == '__main__':
