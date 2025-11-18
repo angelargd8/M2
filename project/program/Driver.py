@@ -59,7 +59,7 @@ def main(argv):
         # Generación de código intermedio/tres direcciones
         ir_gen = IRGenerator(symtab=analyzer.symtab)
         # genera los quads recorriendo el AST
-        ir = ir_gen.generate(tree)
+        ir = ir_gen.generate(ast)
         print("== IR (TAC) ==")
        
         print("\n== quads ==")
@@ -97,7 +97,7 @@ def main(argv):
         with open("./output/final.s", "w") as f:
             f.write(final_code)
 
-        print(">> Archivo final listo para SPIM/MARS: ./output/final.s")
+        print(">> Archivo final en: ./output/final.s")
 
 
 if __name__ == '__main__':

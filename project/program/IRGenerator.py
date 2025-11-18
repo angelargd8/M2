@@ -1,894 +1,754 @@
-from gen.CompiscriptVisitor import CompiscriptVisitor
 from TempManager import TempManager
 from IR import Instr
-from SymbolTable import VariableSymbol, FunctionSymbol, TypeSymbol
+from SymbolTable import VariableSymbol, FunctionSymbol, TypeSymbol, SymbolTable  # ajusta si SymbolTable está en otro lado
 
+# AST nodes
+from AstNodes import *
 
-class IRGenerator(CompiscriptVisitor):
-    def __init__(self, symtab=None):
-        self.quads = []
+class IRGenerator:
+    """
+    Genera código intermedio (quads / tres direcciones) a partir del AST.
+
+    Trabaja sobre los nodos de astnodes.py y usa la SymbolTable que ya
+    fue llenada por el SemanticAnalyzer (incluyendo:
+      - FunctionSymbol.param_offsets
+      - FunctionSymbol.local_offsets
+      - frame_size
+    )
+    """
+
+    def __init__(self, symtab: SymbolTable | None = None):
+        self.quads: list[Instr] = []
         self.tm = TempManager()
         self.symtab = symtab
-        # Stack para manejar break/continue en loops anidados
-        # cada entrada: (label_start, label_end, label_update)
-        self.loop_stack = []
-        # this actual (en métodos de clase)
-        self.current_this = None
-        # tracking de clases para generación de constructores
-        self.current_class = None
 
-    # --------------- utilidades básicas -----------------
+        # Pila de loops, para manejar break/continue
+        # elementos: (label_start, label_end, label_update)
+        self.loop_stack: list[tuple[str, str, str | None]] = []
+
+        # clase actual (para métodos)
+        self.current_class: str | None = None
+
+        # función actual (FunctionSymbol)
+        self.current_func: FunctionSymbol | None = None
+
+    # ==================== utilidades ====================
 
     def emit(self, op, a=None, b=None, r=None):
         self.quads.append(Instr(op, a, b, r))
 
-    def generate(self, tree):
-        self.visit(tree)
-        return self.quads
+    def generate(self, node: Program):
+        """
+        Punto de entrada: recibe un AST Program.
+        1) Genera primero todas las funciones y clases (labels).
+        2) Luego genera el código "main" para el código toplevel.
+        """
+        self.quads = []
 
-    # ¿es un temporal (t0, t1, ...)?
-    def _is_temp_name(self, name: str) -> bool:
-        return isinstance(name, str) and name.startswith("t")
+        # 1) funciones y clases
+        for stmt in node.statements:
+            if isinstance(stmt, ClassDecl):
+                self._visit_ClassDecl(stmt)
+            elif isinstance(stmt, FuncDecl):
+                self._visit_FuncDecl(stmt)
 
-    # resuelve un símbolo por nombre, si hay tabla
-    def _resolve_sym(self, name):
-        if not self.symtab:
-            return None
-        return self.symtab.resolve(name)
-
-    # dirección en memoria para un VariableSymbol (stack / param / global)
-    def _addr_for_symbol(self, sym: VariableSymbol, fallback_name: str):
-        if isinstance(sym, VariableSymbol):
-            if sym.storage in ("stack", "param"):
-                # offset es índice lógico; el codegen MIPS lo convertirá a bytes
-                return f"FP[{sym.offset}]"
-            else:
-                # global/estática
-                return sym.name
-        # si no es VariableSymbol, devolvemos el nombre "tal cual"
-        return fallback_name
-
-    # dirección para un identificador (puede ser atributo, local, global...)
-    def _addr_for_identifier(self, name: str):
-        sym = self._resolve_sym(name)
-
-        # atributo de instancia (cuando current_this está activo)
-        if (
-            self.current_this
-            and isinstance(sym, VariableSymbol)
-            and getattr(sym, "is_attribute", False)
-        ):
-            # ahora usamos una instrucción IR dedicada
-            return ("attribute", self.current_this, name)
-
-        # variable local / parámetro / global
-        return self._addr_for_symbol(sym, name)
-
-    # --------------- raíz del programa ------------------
-
-    def visitProgram(self, ctx):
-        # Primero: generar funciones y clases (declaraciones)
-        for st in ctx.statement():
-            if st.functionDeclaration():
-                self.visit(st.functionDeclaration())
-            elif st.classDeclaration():
-                self.visit(st.classDeclaration())
-
-        # Segundo: generar el "main" con el código suelto
+        # 2) main para el código suelto
         self.emit("label", "main", None, None)
-        for st in ctx.statement():
-            # cualquier statement que NO sea declaración de función/clase
-            if not st.functionDeclaration() and not st.classDeclaration():
-                self.visit(st)
+        for stmt in node.statements:
+            if not isinstance(stmt, (FuncDecl, ClassDecl)):
+                self._visit(stmt)
 
-        # ret implícito al final del main
+        # ret implícito al final de main
         self.emit("ret", "0", None, None)
         return self.quads
 
-    # --------------- expresiones literales --------------
+    # ------------- helpers de direcciones -------------
 
-    # ================================
-    # FIX DEFINITIVO PARA ARRAY LITERALES
-    # ================================
-
-    def visitLiteralExpr(self, ctx):
+    def _addr_for_global_var(self, name: str) -> str:
         """
-        Detecta números, strings, booleanos, null y arrays literales.
+        Usa la SymbolTable.global_scope para encontrar un VariableSymbol global
+        y devolver algo del estilo 'FP[offset]' (como lo hacías antes).
         """
-        # Si es arrayLiteral, delegar a visitArrayLiteral
-        if ctx.arrayLiteral():
-            return self.visit(ctx.arrayLiteral())
-
-        value = ctx.getText()
-        t = self.tm.new_temp()
-        self.emit("copy", value, None, t)
-        return t
-
-
-    # ---------------------------------
-    # NUEVO: manejo correcto de arrays
-    # ---------------------------------
-
-    def visitArrayLiteral(self, ctx):
-        """
-        arrayLiteral : '[' (expression (',' expression)*)? ']'
-        """
-        # Lista de expresiones ANTLR reales
-        exprs = ctx.expression()
-
-        size = len(exprs)
-        t_arr = self.tm.new_temp()
-
-        # alloc_array <size> → t_arr
-        self.emit("alloc_array", size, None, t_arr)
-
-        # inicializar cada elemento
-        for i, e in enumerate(exprs):
-            # evaluar con visit (NUNCA texto crudo)
-            t_elem = self.visit(e)
-            self.tm.add_ref(t_elem)
-
-            # setidx arr, i, valorTemp
-            self.emit("setidx", t_arr, i, t_elem)
-
-            self.tm.release_ref(t_elem)
-
-        return t_arr
-
-    # --------------- identificadores --------------------
-
-    def visitIdentifierExpr(self, ctx):
-        name = ctx.getText()
-        symbol = self._resolve_sym(name)
-
-        # variable ⇒ cargar desde memoria
-        if isinstance(symbol, VariableSymbol):
-            addr_info = self._addr_for_identifier(name)
-            t = self.tm.new_temp()
-            
-            # si es atributo de instancia
-            if isinstance(addr_info, tuple) and addr_info[0] == "attribute":
-                _, obj, prop = addr_info
-                self.emit("getprop", obj, prop, t)
-            else:
-                self.emit("load", addr_info, None, t)
-            
-            return t
-
-        # función ⇒ usamos label/nombre como valor "callable"
-        if isinstance(symbol, FunctionSymbol):
-            addr = symbol.label or symbol.name
-            t = self.tm.new_temp()
-            self.emit("copy", addr, None, t)
-            return t
-
-        # tipo ⇒ se trata como literal de tipo (por ahora solo nombre)
-        if isinstance(symbol, TypeSymbol):
-            t = self.tm.new_temp()
-            self.emit("copy", symbol.name, None, t)
-            return t
-
-        # no resuelto ⇒ tratamos el texto como valor literal
-        t = self.tm.new_temp()
-        self.emit("copy", name, None, t)
-        return t
-
-    # --------------- expr aritméticas / lógicas ---------
-
-    def visitAdditiveExpr(self, ctx):
-        t1 = self.visit(ctx.multiplicativeExpr(0))
-        for i in range(1, len(ctx.multiplicativeExpr())):
-            t2 = self.visit(ctx.multiplicativeExpr(i))
-            op = ctx.getChild(2 * i - 1).getText()  # '+' o '-'
-
-            self.tm.add_ref(t1); self.tm.add_ref(t2)
-            t3 = self.tm.new_temp()
-            self.emit(op, t1, t2, t3)
-            self.tm.release_ref(t1); self.tm.release_ref(t2)
-
-            t1 = t3
-        return t1
-
-    def visitMultiplicativeExpr(self, ctx):
-        t1 = self.visit(ctx.unaryExpr(0))
-        for i in range(1, len(ctx.unaryExpr())):
-            t2 = self.visit(ctx.unaryExpr(i))
-            op = ctx.getChild(2 * i - 1).getText()  # '*', '/', '%'
-
-            self.tm.add_ref(t1); self.tm.add_ref(t2)
-            t3 = self.tm.new_temp()
-            self.emit(op, t1, t2, t3)
-            self.tm.release_ref(t1); self.tm.release_ref(t2)
-
-            t1 = t3
-        return t1
-
-    def visitRelationalExpr(self, ctx):
-        t1 = self.visit(ctx.additiveExpr(0))
-        for i in range(1, len(ctx.additiveExpr())):
-            t2 = self.visit(ctx.additiveExpr(i))
-            op = ctx.getChild(2 * i - 1).getText()  # '<', '<=', '>', '>='
-
-            self.tm.add_ref(t1); self.tm.add_ref(t2)
-            t3 = self.tm.new_temp()
-            self.emit(op, t1, t2, t3)
-            self.tm.release_ref(t1); self.tm.release_ref(t2)
-
-            t1 = t3
-        return t1
-
-    def visitEqualityExpr(self, ctx):
-        t1 = self.visit(ctx.relationalExpr(0))
-        for i in range(1, len(ctx.relationalExpr())):
-            t2 = self.visit(ctx.relationalExpr(i))
-            op = ctx.getChild(2 * i - 1).getText()  # '==', '!='
-
-            self.tm.add_ref(t1); self.tm.add_ref(t2)
-            t3 = self.tm.new_temp()
-            self.emit(op, t1, t2, t3)
-            self.tm.release_ref(t1); self.tm.release_ref(t2)
-
-            t1 = t3
-        return t1
-
-    def visitLogicalAndExpr(self, ctx):
-        t1 = self.visit(ctx.equalityExpr(0))
-        for i in range(1, len(ctx.equalityExpr())):
-            t2 = self.visit(ctx.equalityExpr(i))
-
-            self.tm.add_ref(t1); self.tm.add_ref(t2)
-            t3 = self.tm.new_temp()
-            self.emit("&&", t1, t2, t3)
-            self.tm.release_ref(t1); self.tm.release_ref(t2)
-
-            t1 = t3
-        return t1
-
-    def visitLogicalOrExpr(self, ctx):
-        t1 = self.visit(ctx.logicalAndExpr(0))
-        for i in range(1, len(ctx.logicalAndExpr())):
-            t2 = self.visit(ctx.logicalAndExpr(i))
-
-            self.tm.add_ref(t1); self.tm.add_ref(t2)
-            t3 = self.tm.new_temp()
-            self.emit("||", t1, t2, t3)
-            self.tm.release_ref(t1); self.tm.release_ref(t2)
-
-            t1 = t3
-        return t1
-
-    # --------------- declaraciones / asignaciones -------
-
-    def visitVariableDeclaration(self, ctx):
-        name = ctx.Identifier().getText()
-        addr_info = self._addr_for_identifier(name)
-
-        if ctx.initializer():
-            t_expr = self.visit(ctx.initializer().expression())
-            self.tm.add_ref(t_expr)
-            
-            # si es atributo de instancia
-            if isinstance(addr_info, tuple) and addr_info[0] == "attribute":
-                _, obj, prop = addr_info
-                self.emit("setprop", obj, prop, t_expr)
-            else:
-                self.emit("store", t_expr, None, addr_info)
-            
-            self.tm.release_ref(t_expr)
-        return None
-
-    def visitConstantDeclaration(self, ctx):
-        name = ctx.Identifier().getText()
-        addr_info = self._addr_for_identifier(name)
-
-        t_expr = self.visit(ctx.expression())
-        self.tm.add_ref(t_expr)
-        
-        # si es atributo de instancia
-        if isinstance(addr_info, tuple) and addr_info[0] == "attribute":
-            _, obj, prop = addr_info
-            self.emit("setprop", obj, prop, t_expr)
-        else:
-            self.emit("store", t_expr, None, addr_info)
-        
-        self.tm.release_ref(t_expr)
-
-        sym = self._resolve_sym(name)
+        if not self.symtab:
+            return name
+        sym = self.symtab.global_scope.resolve(name)
         if isinstance(sym, VariableSymbol):
-            sym.const = True
-        return None
+            # Igual que antes: delegamos a MIPSCodeGen interpretar storage/offset
+            return f"FP[{sym.offset}]"
+        return name
 
-    def visitAssignment(self, ctx):
-        """Maneja: 
-        1. Identifier '=' expression ';'
-        2. expression '.' Identifier '=' expression ';'
+    def _current_func_symbol(self, name: str | None = None) -> FunctionSymbol | None:
         """
-        
-        # Caso 1: Identifier '=' expression ';'
-        if ctx.Identifier() and len(ctx.expression()) == 1:
-            name = ctx.Identifier().getText()
-            
-            # verificar si es constante
-            sym = self._resolve_sym(name)
-            if isinstance(sym, VariableSymbol) and getattr(sym, "const", False):
-                raise Exception(f"No se puede asignar a la constante '{name}'")
-            
-            t_expr = self.visit(ctx.expression(0))
-            addr_info = self._addr_for_identifier(name)
-
-            self.tm.add_ref(t_expr)
-            
-            # si es atributo de instancia
-            if isinstance(addr_info, tuple) and addr_info[0] == "attribute":
-                _, obj, prop = addr_info
-                self.emit("setprop", obj, prop, t_expr)
-            else:
-                self.emit("store", t_expr, None, addr_info)
-            
-            self.tm.release_ref(t_expr)
+        Obtiene el FunctionSymbol de la función actual.
+        Si name es None, devuelve self.current_func.
+        Si no, intenta resolverlo con nombre simple o calificado (para métodos).
+        """
+        if not self.symtab:
             return None
-        
-        # Caso 2: expression '.' Identifier '=' expression ';'
-        elif len(ctx.expression()) == 2:
-            # obtener el objeto (primera expression)
-            t_obj = self.visit(ctx.expression(0))
-            self.tm.add_ref(t_obj)
-            
-            # obtener el nombre de la propiedad
-            prop_name = ctx.Identifier().getText()
-            
-            # evaluar el valor a asignar (segunda expression)
-            t_value = self.visit(ctx.expression(1))
-            self.tm.add_ref(t_value)
-            
-            # emitir setprop
-            self.emit("setprop", t_obj, prop_name, t_value)
-            
-            self.tm.release_ref(t_obj)
-            self.tm.release_ref(t_value)
-            
-            return None
-        
-        else:
-            raise Exception(f"Formato de asignación no reconocido: {ctx.getText()}")
-    
-    def visitAssignExpr(self, ctx):
-        """Maneja: leftHandSide '=' assignmentExpr (expression-level)"""
-        # obtener el lado izquierdo (puede ser x, arr[i], obj.prop, etc.)
-        lhs_ctx = ctx.lhs
-        
-        # evaluar el lado derecho primero
-        t_value = self.visit(ctx.assignmentExpr())
-        self.tm.add_ref(t_value)
-        
-        # obtener la base del LHS
-        base_text = lhs_ctx.primaryAtom().getText()
-        sym = self._resolve_sym(base_text)
-        
-        # si no hay sufijos, es asignación simple a variable
-        if not lhs_ctx.suffixOp():
-            # verificar si es constante
-            if isinstance(sym, VariableSymbol) and getattr(sym, "const", False):
-                raise Exception(f"No se puede asignar a la constante '{base_text}'")
-            
-            addr_info = self._addr_for_identifier(base_text)
-            
-            if isinstance(addr_info, tuple) and addr_info[0] == "attribute":
-                _, obj, prop = addr_info
-                self.emit("setprop", obj, prop, t_value)
-            else:
-                self.emit("store", t_value, None, addr_info)
-            
-            self.tm.release_ref(t_value)
-            return t_value
-        
-        # Procesar la base
-        if base_text == "this":
-            current = self.current_this
-        elif isinstance(sym, VariableSymbol):
-            addr_info = self._addr_for_identifier(base_text)
-            current = self.tm.new_temp()
-            
-            if isinstance(addr_info, tuple) and addr_info[0] == "attribute":
-                _, obj, prop = addr_info
-                self.emit("getprop", obj, prop, current)
-            else:
-                self.emit("load", addr_info, None, current)
-        else:
-            current = self.visit(lhs_ctx.primaryAtom())
-        
-        # Procesar todos los sufijos excepto el último
-        suffixes = lhs_ctx.suffixOp()
-        for i, sop in enumerate(suffixes[:-1]):
-            first = sop.getChild(0).getText()
-            
-            if first == "(":
-                # llamada a función - evaluar normalmente
-                args = []
-                if hasattr(sop, "arguments") and sop.arguments():
-                    for e in sop.arguments().expression():
-                        t_arg = self.visit(e)
-                        self.tm.add_ref(t_arg)
-                        args.append(t_arg)
-                
-                for j, t_arg in enumerate(args):
-                    self.emit("param", t_arg, None, None)
-                    self.tm.release_ref(t_arg)
-                
-                t_res = self.tm.new_temp()
-                self.emit("call", current, len(args), t_res)
-                current = t_res
-                
-            elif first == "[":
-                # indexación
-                idx_t = self.visit(sop.expression())
-                t_out = self.tm.new_temp()
-                self.emit("getidx", current, idx_t, t_out)
-                self.tm.release_ref(idx_t)
-                current = t_out
-                
-            elif first == ".":
-                # propiedad
-                prop = sop.getChild(1).getText()
-                t_prop = self.tm.new_temp()
-                self.emit("getprop", current, prop, t_prop)
-                current = t_prop
-        
-        # Procesar el último sufijo (donde se hace la asignación)
-        last_sop = suffixes[-1]
-        first = last_sop.getChild(0).getText()
-        
-        if first == "[":
-            # arr[i] = value
-            idx_t = self.visit(last_sop.expression())
-            self.tm.add_ref(idx_t)
-            self.emit("setidx", current, idx_t, t_value)
-            self.tm.release_ref(idx_t)
-            
-        elif first == ".":
-            # obj.prop = value
-            prop = last_sop.getChild(1).getText()
-            self.emit("setprop", current, prop, t_value)
-        else:
-            raise Exception(f"No se puede asignar a sufijo '{first}'")
-        
-        self.tm.release_ref(t_value)
-        return t_value
-    
-    def visitPropertyAssignExpr(self, ctx):
-        """Maneja: leftHandSide '.' Identifier '=' assignmentExpr"""
-        # obtener el objeto (leftHandSide)
-        t_obj = self.visit(ctx.lhs)
-        self.tm.add_ref(t_obj)
-        
-        # obtener el nombre de la propiedad
-        prop_name = ctx.Identifier().getText()
-        
-        # evaluar el valor a asignar
-        t_value = self.visit(ctx.assignmentExpr())
-        self.tm.add_ref(t_value)
-        
-        # emitir setprop
-        self.emit("setprop", t_obj, prop_name, t_value)
-        
-        self.tm.release_ref(t_obj)
-        self.tm.release_ref(t_value)
-        
-        return t_value
-    
-    def visitExprNoAssign(self, ctx):
-        """Maneja: conditionalExpr (cuando no hay asignación)"""
-        return self.visit(ctx.conditionalExpr())
-    
-    def visitTernaryExpr(self, ctx):
-        """Maneja: logicalOrExpr ('?' expression ':' expression)?"""
-        # evaluar condición
-        t_cond = self.visit(ctx.logicalOrExpr())
-        
-        # si no hay operador ternario, solo retornar la condición
-        if not ctx.expression():
-            return t_cond
-        
-        # labels para el ternario
-        label_true = self.tm.newLabel()
-        label_false = self.tm.newLabel()
-        label_end = self.tm.newLabel()
-        
-        t_result = self.tm.new_temp()
-        
-        # if (cond) goto true_label
-        self.tm.add_ref(t_cond)
-        self.emit("iftrue_goto", t_cond, None, label_true)
-        self.tm.release_ref(t_cond)
-        
-        # false branch
-        self.emit("label", label_false)
-        t_false = self.visit(ctx.expression(1))
-        self.tm.add_ref(t_false)
-        self.emit("copy", t_false, None, t_result)
-        self.tm.release_ref(t_false)
-        self.emit("goto", None, None, label_end)
-        
-        # true branch
-        self.emit("label", label_true)
-        t_true = self.visit(ctx.expression(0))
-        self.tm.add_ref(t_true)
-        self.emit("copy", t_true, None, t_result)
-        self.tm.release_ref(t_true)
-        
-        self.emit("label", label_end)
-        return t_result
 
-    # --------------- clases -----------------------------
+        if name is None and self.current_func is not None:
+            return self.current_func
 
-    def visitClassDeclaration(self, ctx):
-        # Nombre de la clase
-        if isinstance(ctx.Identifier(), list):
-            class_name = ctx.Identifier()[0].getText()
-        else:
-            class_name = ctx.Identifier().getText()
+        # si hay clase actual, intentar nombre calificado
+        if self.current_class and name is not None:
+            qname = f"{self.current_class}.{name}"
+            s = self.symtab.global_scope.resolve(qname)
+            if isinstance(s, FunctionSymbol):
+                return s
 
-        prev_class = self.current_class
-        self.current_class = class_name
+        if name is not None:
+            s = self.symtab.global_scope.resolve(name)
+            if isinstance(s, FunctionSymbol):
+                return s
 
-        # Generamos el constructor de la clase
-        constructor_label = f"_init_{class_name}"
-        self.emit("label", constructor_label, None, None)
-
-        # Parámetro implícito: this (recibido en FP[8])
-        this_param = self.tm.new_temp()
-        self.emit("load", "FP[8]", None, this_param)
-
-        prev_this = self.current_this
-        self.current_this = this_param
-
-        # Inicializar atributos con valores por defecto o inicializadores
-        for member in ctx.classMember():
-            if hasattr(member, "variableDeclaration") and member.variableDeclaration():
-                attr_ctx = member.variableDeclaration()
-                attr_name = attr_ctx.Identifier().getText()
-
-                # inicializador
-                if attr_ctx.initializer():
-                    t_init = self.visit(attr_ctx.initializer().expression())
-                else:
-                    # valor por defecto según tipo
-                    t_init = self.tm.new_temp()
-
-                    type_node = None
-                    if hasattr(attr_ctx, "typeAnnotation") and attr_ctx.typeAnnotation():
-                        type_ann = attr_ctx.typeAnnotation()
-                        if hasattr(type_ann, "type_") and type_ann.type_():
-                            type_node = type_ann.type_()
-                        elif hasattr(type_ann, "type") and type_ann.type():
-                            type_node = type_ann.type()
-                    elif hasattr(attr_ctx, "type_") and attr_ctx.type_():
-                        type_node = attr_ctx.type_()
-                    elif hasattr(attr_ctx, "type") and attr_ctx.type():
-                        type_node = attr_ctx.type()
-
-                    type_text = type_node.getText() if type_node else None
-                    if type_text == "string":
-                        default_val = '""'
-                    elif type_text == "boolean":
-                        default_val = "false"
-                    else:
-                        default_val = "0"
-
-                    self.emit("copy", default_val, None, t_init)
-
-                # usar setprop para establecer el atributo
-                self.emit("setprop", this_param, attr_name, t_init)
-
-        # retornar this
-        self.emit("ret", this_param, None, None)
-
-        # Generar métodos de la clase
-        for member in ctx.classMember():
-            if hasattr(member, "functionDeclaration") and member.functionDeclaration():
-                self.visit(member.functionDeclaration())
-
-        self.current_this = prev_this
-        self.current_class = prev_class
         return None
 
-    # --------------- print ------------------------------
+    def _addr_for_local_var(self, name: str) -> str | None:
+        """
+        Usa FunctionSymbol.param_offsets y local_offsets para armar una dirección
+        relativa a FP: 'FP[offset]'.
+        """
+        f = self._current_func_symbol()
+        if not f:
+            return None
 
-    def visitPrintStatement(self, ctx):
-        t_expr = self.visit(ctx.expression())
-        self.tm.add_ref(t_expr)
-        self.emit("print", t_expr, None, None)
-        self.tm.release_ref(t_expr)
+        if f.param_offsets and name in f.param_offsets:
+            off = f.param_offsets[name]
+            return f"FP[{off}]"
 
-    # --------------- left-hand-side (llamadas, index, props) ------------
+        if f.local_offsets and name in f.local_offsets:
+            off = f.local_offsets[name]
+            # SEM: local_offsets guarda un número positivo; MIPSCodeGen decidirá cómo traducirlo
+            return f"FP[{off}]"
 
-    def visitLeftHandSide(self, ctx):
-        base_text = ctx.primaryAtom().getText()
-        sym = self._resolve_sym(base_text)
+        return None
 
-        # determinar base inicial
-        if base_text == "this":
-            acc_kind, acc_val = "value", self.current_this
-        elif isinstance(sym, FunctionSymbol):
-            acc_kind, acc_val = "func", (sym, sym.label or sym.name)
-        elif isinstance(sym, VariableSymbol):
-            # cargar el valor de la variable
-            addr_info = self._addr_for_identifier(base_text)
-            t0 = self.tm.new_temp()
-            
-            if isinstance(addr_info, tuple) and addr_info[0] == "attribute":
-                _, obj, prop = addr_info
-                self.emit("getprop", obj, prop, t0)
-            else:
-                self.emit("load", addr_info, None, t0)
-            
-            acc_kind, acc_val = "value", t0
+    def _addr_for_var(self, name: str) -> str:
+        """
+        Determina si una variable es local/param o global, y devuelve su dirección simbólica.
+        """
+        # primero intentar como local/param de la función actual
+        addr = self._addr_for_local_var(name)
+        if addr is not None:
+            return addr
+
+        # si no, global
+        return self._addr_for_global_var(name)
+
+    def _load_var(self, name: str) -> str:
+        """
+        Carga el valor de una variable (global/local/param) en un temporal.
+        """
+        addr = self._addr_for_var(name)
+        t = self.tm.new_temp()
+        self.emit("load", addr, None, t)
+        return t
+
+    def _store_var(self, name: str, t_value: str):
+        """
+        Guarda el contenido de t_value en una variable (global/local/param).
+        """
+        addr = self._addr_for_var(name)
+        self.emit("store", t_value, None, addr)
+
+    # ==================== dispatcher genérico ====================
+
+    def _visit(self, node):
+        if node is None:
+            return None
+
+        tname = node.__class__.__name__
+        m = getattr(self, f"_visit_{tname}", None)
+        if m:
+            return m(node)
+
+        # fallback: recorrer campos comunes si fuera necesario
+        # (para este diseño, deberíamos tener implementado todo lo importante)
+        return None
+
+    # ==================== declaraciones top-level ====================
+
+    def _visit_Program(self, node: Program):
+        # No se usa directamente; generate maneja Program.
+        for s in node.statements:
+            self._visit(s)
+
+    def _visit_VarDecl(self, node: VarDecl):
+        """
+        let / const a nivel global o local.
+        """
+        name = node.name
+
+        # Si hay inicializador, evaluar y hacer store
+        if node.init is not None:
+            t_init = self._visit(node.init)
+            self.tm.add_ref(t_init)
+            self._store_var(name, t_init)
+            self.tm.release_ref(t_init)
+        # Si no tiene init: en IR no necesitamos hacer nada; runtime asume 0/null
+
+    def _visit_FuncDecl(self, node: FuncDecl):
+        """
+        Función top-level o método de clase.
+        - Usa FunctionSymbol para conseguir offsets de params/locales y label.
+        """
+        func_name = node.name
+        f_sym = self._current_func_symbol(func_name)
+        prev_func = self.current_func
+        self.current_func = f_sym
+
+        # label de función
+        if f_sym and f_sym.label:
+            label = f_sym.label
+        elif self.current_class is not None:
+            label = f"{self.current_class}.{func_name}"
         else:
-            t0 = self.visit(ctx.primaryAtom())
-            acc_kind, acc_val = "value", t0
+            label = func_name
 
-        # sufijos: llamada, index, propiedad
-        for sop in ctx.suffixOp():
-            first = sop.getChild(0).getText()
+        self.emit("label", label, None, None)
 
-            # --- llamada f(...) ---
-            if first == "(":
-                args = []
-                if hasattr(sop, "arguments") and sop.arguments():
-                    for e in sop.arguments().expression():
-                        t_arg = self.visit(e)
-                        self.tm.add_ref(t_arg)
-                        args.append(t_arg)
+        # Si es método de clase, podemos asumir 'this' en FP[8] o similar,
+        # pero tu runtime lo maneja de forma más explícita vía new/props.
+        # Aquí no hacemos nada especial, simplemente generamos el cuerpo.
 
-                # Protocolo unificado de llamadas
-                if acc_kind == "func":
-                    func_sym, func_label = acc_val
-                    
-                    # Si es un método, pasar this como primer parámetro
-                    if getattr(func_sym, "is_method", False):
-                        self.emit("param", self.current_this, None, None)
-                    
-                    # pasar argumentos
-                    for i, t_arg in enumerate(args):
-                        self.emit("param", t_arg, None, None)
-                        self.tm.release_ref(t_arg)
-                    
-                    # llamada
-                    t_res = self.tm.new_temp()
-                    self.emit("call", func_label, len(args), t_res)
-                else:
-                    # llamada indirecta (función como valor)
-                    for i, t_arg in enumerate(args):
-                        self.emit("param", t_arg, None, None)
-                        self.tm.release_ref(t_arg)
-                    
-                    t_res = self.tm.new_temp()
-                    self.emit("call", acc_val, len(args), t_res)
-
-                acc_kind, acc_val = "value", t_res
-
-            # --- indexación base[idx] ---
-            elif first == "[":
-                idx_t = self.visit(sop.expression())
-                t_out = self.tm.new_temp()
-                self.emit("getidx", acc_val, idx_t, t_out)
-                self.tm.release_ref(idx_t)
-                acc_kind, acc_val = "value", t_out
-
-            # --- propiedad base.prop ---
-            elif first == ".":
-                prop = sop.getChild(1).getText()
-                t_prop = self.tm.new_temp()
-                self.emit("getprop", acc_val, prop, t_prop)
-                acc_kind, acc_val = "value", t_prop
-
-            else:
-                raise Exception(f"Sufijo no reconocido: '{first}'")
-
-        return acc_val
-
-    # --------------- if / while / for / do-while / foreach --------------
-
-    def visitIfStatement(self, ctx):
-        cond_temp = self.visit(ctx.expression())
-        label_true = self.tm.newLabel()
-        label_false = self.tm.newLabel()
-        label_end = self.tm.newLabel()
-
-        self.tm.add_ref(cond_temp)
-        self.emit("iffalse_goto", cond_temp, None, label_false)
-        self.tm.release_ref(cond_temp)
-
-        self.emit("label", label_true)
-        self.visit(ctx.block(0))
-
-        if len(ctx.block()) > 1:
-            self.emit("goto", None, None, label_end)
-            self.emit("label", label_false)
-            self.visit(ctx.block(1))
-            self.emit("label", label_end)
+        # cuerpo
+        if isinstance(node.body, Block):
+            self._visit_Block(node.body)
         else:
-            self.emit("label", label_false)
+            # por si algún día soportas cuerpo como lista
+            for s in node.body or []:
+                self._visit(s)
 
-    def visitWhileStatement(self, ctx):
-        label_start = self.tm.newLabel()
-        label_end = self.tm.newLabel()
+        # ret implícito (para funciones void)
+        self.emit("ret", None, None, None)
 
-        self.loop_stack.append((label_start, label_end, label_start))
+        self.current_func = prev_func
 
-        self.emit("label", label_start)
-        cond_temp = self.visit(ctx.expression())
-        self.tm.add_ref(cond_temp)
-        self.emit("iffalse_goto", cond_temp, None, label_end)
-        self.tm.release_ref(cond_temp)
+    def _visit_ClassDecl(self, node: ClassDecl):
+        """
+        Genera:
+        - Un "constructor sintético" opcional que inicializa propiedades.
+        - Código de los métodos.
+        Aquí hacemos algo simple: sólo generamos métodos como funciones con label "Clase.metodo".
+        """
+        prev_class = self.current_class
+        self.current_class = node.name
 
-        self.visit(ctx.block())
-        self.emit("goto", None, None, label_start)
-        self.emit("label", label_end)
+        # Métodos
+        for m in node.methods or []:
+            self._visit_FuncDecl(m)
+
+        self.current_class = prev_class
+
+    # ==================== statements ====================
+
+    def _visit_Block(self, node: Block):
+        for s in node.statements:
+            self._visit(s)
+
+    def _visit_Assign(self, node: Assign):
+        # target puede ser Var, Member, Index
+        t_value = self._visit(node.expr)
+        self.tm.add_ref(t_value)
+
+        if isinstance(node.target, Var):
+            self._store_var(node.target.name, t_value)
+
+        elif isinstance(node.target, Member):
+            # obj.prop = expr;
+            t_obj = self._visit(node.target.object)
+            self.tm.add_ref(t_obj)
+            self.emit("setprop", t_obj, node.target.name, t_value)
+            self.tm.release_ref(t_obj)
+
+        elif isinstance(node.target, Index):
+            # seq[index] = expr;
+            t_seq = self._visit(node.target.seq)
+            t_idx = self._visit(node.target.index)
+            self.tm.add_ref(t_seq)
+            self.tm.add_ref(t_idx)
+            self.emit("setidx", t_seq, t_idx, t_value)
+            self.tm.release_ref(t_seq)
+            self.tm.release_ref(t_idx)
+
+        else:
+            # fallback raro, pero para no explotar:
+            pass
+
+        self.tm.release_ref(t_value)
+
+    def _visit_ExprStmt(self, node: ExprStmt):
+        self._visit(node.expr)
+
+    def _visit_PrintStmt(self, node: PrintStmt):
+        t = self._visit(node.expr)
+        self.tm.add_ref(t)
+        self.emit("print", t, None, None)
+        self.tm.release_ref(t)
+
+    def _visit_If(self, node: If):
+        t_cond = self._visit(node.condition)
+        self.tm.add_ref(t_cond)
+
+        lbl_else = self.tm.newLabel()
+        lbl_end = self.tm.newLabel()
+
+        self.emit("iffalse_goto", t_cond, None, lbl_else)
+        self.tm.release_ref(t_cond)
+
+        # then
+        self._visit_Block(node.then_branch)
+
+        if node.else_branch:
+            self.emit("goto", None, None, lbl_end)
+            self.emit("label", lbl_else, None, None)
+            self._visit_Block(node.else_branch)
+            self.emit("label", lbl_end, None, None)
+        else:
+            self.emit("label", lbl_else, None, None)
+
+    def _visit_While(self, node: While):
+        lbl_start = self.tm.newLabel()
+        lbl_end = self.tm.newLabel()
+
+        self.loop_stack.append((lbl_start, lbl_end, lbl_start))
+
+        self.emit("label", lbl_start, None, None)
+        t_cond = self._visit(node.condition)
+        self.tm.add_ref(t_cond)
+        self.emit("iffalse_goto", t_cond, None, lbl_end)
+        self.tm.release_ref(t_cond)
+
+        self._visit_Block(node.body)
+        self.emit("goto", None, None, lbl_start)
+        self.emit("label", lbl_end, None, None)
 
         self.loop_stack.pop()
 
-    def visitDoWhileStatement(self, ctx):
-        label_start = self.tm.newLabel()
-        label_end = self.tm.newLabel()
+    def _visit_DoWhile(self, node: DoWhile):
+        lbl_start = self.tm.newLabel()
+        lbl_end = self.tm.newLabel()
 
-        self.loop_stack.append((label_start, label_end, label_start))
+        self.loop_stack.append((lbl_start, lbl_end, lbl_start))
 
-        self.emit("label", label_start)
-        self.visit(ctx.block())
+        self.emit("label", lbl_start, None, None)
+        self._visit_Block(node.body)
+        t_cond = self._visit(node.condition)
+        self.tm.add_ref(t_cond)
+        self.emit("iftrue_goto", t_cond, None, lbl_start)
+        self.tm.release_ref(t_cond)
+        self.emit("label", lbl_end, None, None)
 
-        cond_temp = self.visit(ctx.expression())
-        self.tm.add_ref(cond_temp)
-        self.emit("iftrue_goto", cond_temp, None, label_start)
-        self.tm.release_ref(cond_temp)
-
-        self.emit("label", label_end)
         self.loop_stack.pop()
 
-    def visitForeachStatement(self, ctx):
-        item_name = ctx.Identifier().getText()
+    def _visit_For(self, node: For):
+        # for (init; condition; step) body
+        lbl_start = self.tm.newLabel()
+        lbl_end = self.tm.newLabel()
+        lbl_update = self.tm.newLabel()
 
-        # evaluar colección
-        t_collection = self.visit(ctx.expression())
+        self.loop_stack.append((lbl_start, lbl_end, lbl_update))
+
+        if node.init is not None:
+            self._visit(node.init)
+
+        self.emit("label", lbl_start, None, None)
+        if node.condition is not None:
+            t_cond = self._visit(node.condition)
+            self.tm.add_ref(t_cond)
+            self.emit("iffalse_goto", t_cond, None, lbl_end)
+            self.tm.release_ref(t_cond)
+
+        self._visit_Block(node.body)
+
+        self.emit("label", lbl_update, None, None)
+        if node.step is not None:
+            self._visit(node.step)
+        self.emit("goto", None, None, lbl_start)
+        self.emit("label", lbl_end, None, None)
+
+        self.loop_stack.pop()
+
+    def _visit_Foreach(self, node: Foreach):
+        """
+        foreach (name in iterable) { body }
+        Descomponemos en un for con índice.
+        """
+        t_collection = self._visit(node.iterable)
         self.tm.add_ref(t_collection)
 
-        label_start = self.tm.newLabel()
-        label_end = self.tm.newLabel()
-        label_update = self.tm.newLabel()
+        lbl_start = self.tm.newLabel()
+        lbl_end = self.tm.newLabel()
+        lbl_update = self.tm.newLabel()
+        self.loop_stack.append((lbl_start, lbl_end, lbl_update))
 
-        self.loop_stack.append((label_start, label_end, label_update))
-
-        # crear variable índice (temporal que se guarda en memoria)
+        # index = 0
         t_index = self.tm.new_temp()
-        self.emit("copy", 0, None, t_index)  # index = 0
+        self.emit("copy", 0, None, t_index)
 
-        # obtener longitud del array
-        t_length = self.tm.new_temp()
-        self.emit("array_length", t_collection, None, t_length)  # necesitarás agregar esto
+        # length = array_length(collection)
+        t_len = self.tm.new_temp()
+        self.emit("array_length", t_collection, None, t_len)
 
-        self.emit("label", label_start)
-
-        # comprobar: index < length
+        self.emit("label", lbl_start, None, None)
         t_cond = self.tm.new_temp()
-        self.emit("<", t_index, t_length, t_cond)
-        self.emit("iffalse_goto", t_cond, None, label_end)
+        self.emit("<", t_index, t_len, t_cond)
+        self.emit("iffalse_goto", t_cond, None, lbl_end)
 
         # item = collection[index]
         t_item = self.tm.new_temp()
         self.emit("getidx", t_collection, t_index, t_item)
 
-        # guardar en variable de iteración
-        sym_item = self._resolve_sym(item_name)
-        if isinstance(sym_item, VariableSymbol):
-            addr = self._addr_for_symbol(sym_item, item_name)
-        else:
-            addr = item_name
-        self.emit("store", t_item, None, addr)
+        # guardar en variable "name" (simplificamos como var local/global normal)
+        self._store_var(node.name, t_item)
 
-        # cuerpo
-        self.visit(ctx.block())
+        # body
+        self._visit_Block(node.body)
 
         # update: index++
-        self.emit("label", label_update)
+        self.emit("label", lbl_update, None, None)
         t_one = self.tm.new_temp()
         self.emit("copy", 1, None, t_one)
-        t_next_index = self.tm.new_temp()
-        self.emit("+", t_index, t_one, t_next_index)
-        self.emit("copy", t_next_index, None, t_index)
+        t_next = self.tm.new_temp()
+        self.emit("+", t_index, t_one, t_next)
+        self.emit("copy", t_next, None, t_index)
 
-        self.emit("goto", None, None, label_start)
-        self.emit("label", label_end)
+        self.emit("goto", None, None, lbl_start)
+        self.emit("label", lbl_end, None, None)
 
         self.tm.release_ref(t_collection)
         self.loop_stack.pop()
-    # --------------- break / continue -------------------
 
-    def visitBreakStatement(self, ctx):
-        if not self.loop_stack:
-            raise Exception("break fuera de loop")
-        _, label_end, _ = self.loop_stack[-1]
-        self.emit("goto", None, None, label_end)
+    def _visit_TryCatch(self, node: TryCatch):
+        """
+        Implementación simplificada usando runtime de excepciones:
+        push_handler(catch_label)
+        try_block
+        pop_handler
+        goto end
+        catch_label:
+            get_exception -> temp
+            store en var
+            catch_block
+        end:
+        """
+        lbl_catch = self.tm.newLabel()
+        lbl_end = self.tm.newLabel()
 
-    def visitContinueStatement(self, ctx):
-        if not self.loop_stack:
-            raise Exception("continue fuera de loop")
-        _, _, label_update = self.loop_stack[-1]
-        self.emit("goto", None, None, label_update)
+        # push handler
+        self.emit("push_handler", lbl_catch, None, None)
 
-    # --------------- return -----------------------------
+        # try
+        self._visit_Block(node.try_block)
 
-    def visitReturnStatement(self, ctx):
-        value = self.visit(ctx.expression()) if ctx.expression() else None
-        if value:
-            self.emit("ret", value, None, None)
-        else:
-            self.emit("ret", None, None, None)
-
-    # --------------- try/catch --------------------------
-
-    def visitTryCatchStatement(self, ctx):
-        try_label = self.tm.newLabel()
-        catch_label = self.tm.newLabel()
-        end_label = self.tm.newLabel()
-
-        # registrar manejador de excepciones
-        self.emit("push_handler", catch_label, None, None)
-        
-        # bloque try
-        self.emit("label", try_label)
-        self.visit(ctx.block(0))
-        
-        # si terminó sin excepción, saltar al final
+        # si termina sin lanzar, pop handler
         self.emit("pop_handler", None, None, None)
-        self.emit("goto", None, None, end_label)
+        self.emit("goto", None, None, lbl_end)
 
-        # bloque catch
-        self.emit("label", catch_label)
-        exc_var = ctx.Identifier().getText()
+        # catch
+        self.emit("label", lbl_catch, None, None)
         t_exc = self.tm.new_temp()
         self.emit("get_exception", None, None, t_exc)
-        
-        # guardar excepción en la variable
-        sym = self._resolve_sym(exc_var)
-        if isinstance(sym, VariableSymbol):
-            addr = self._addr_for_symbol(sym, exc_var)
+        self._store_var(node.var, t_exc)
+
+        self._visit_Block(node.catch_block)
+
+        self.emit("label", lbl_end, None, None)
+
+    def _visit_Switch(self, node: Switch):
+        # switch(expr) { cases... default... }
+        t_scrut = self._visit(node.expr)
+        self.tm.add_ref(t_scrut)
+        lbl_end = self.tm.newLabel()
+
+        case_labels = [self.tm.newLabel() for _ in node.cases]
+        default_label = self.tm.newLabel() if node.default else lbl_end
+
+        # Comparaciones para cada case
+        for (c, lbl_case) in zip(node.cases, case_labels):
+            t_case_val = self._visit(c.expr)
+            t_cmp = self.tm.new_temp()
+            self.emit("==", t_scrut, t_case_val, t_cmp)
+            self.emit("iftrue_goto", t_cmp, None, lbl_case)
+
+        # default
+        if node.default:
+            self.emit("goto", None, None, default_label)
         else:
-            addr = exc_var
-        self.emit("store", t_exc, None, addr)
-        
-        self.visit(ctx.block(1))
-        
-        self.emit("label", end_label)
+            self.emit("goto", None, None, lbl_end)
 
-    # --------------- funciones --------------------------
+        # cuerpos de cases
+        for (c, lbl_case) in zip(node.cases, case_labels):
+            self.emit("label", lbl_case, None, None)
+            for s in c.statements:
+                self._visit(s)
 
-    def visitFunctionDeclaration(self, ctx):
-        func_name = ctx.Identifier().getText()
+        if node.default:
+            self.emit("label", default_label, None, None)
+            for s in node.default:
+                self._visit(s)
 
-        # obtener símbolo
-        sym = self._resolve_sym(func_name)
+        self.emit("label", lbl_end, None, None)
+        self.tm.release_ref(t_scrut)
 
-        # si es método de clase, prefijarlo con el nombre de la clase
-        if sym and getattr(sym, "is_method", False):
-            func_label = f"{sym.class_name}_{func_name}"
+    def _visit_Return(self, node: Return):
+        if node.expr is None:
+            self.emit("ret", None, None, None)
         else:
-            func_label = func_name
+            t_val = self._visit(node.expr)
+            self.tm.add_ref(t_val)
+            self.emit("ret", t_val, None, None)
+            self.tm.release_ref(t_val)
 
-        # crear label de función
-        self.emit("label", func_label, None, None)
+    def _visit_Break(self, node: Break):
+        if not self.loop_stack:
+            # semantic ya lo validó; aquí sólo protegemos
+            return
+        _, lbl_end, _ = self.loop_stack[-1]
+        self.emit("goto", None, None, lbl_end)
 
-        # establecer frame actual de this (si es método)
-        prev_this = self.current_this
-        if sym and getattr(sym, "is_method", False):
-            # cargar this del primer parámetro
-            this_temp = self.tm.new_temp()
-            self.emit("load", "FP[8]", None, this_temp)
-            self.current_this = this_temp
+    def _visit_Continue(self, node: Continue):
+        if not self.loop_stack:
+            return
+        _, _, lbl_update = self.loop_stack[-1]
+        if lbl_update is None:
+            return
+        self.emit("goto", None, None, lbl_update)
 
-        # visitar el cuerpo de la función
-        self.visit(ctx.block())
+    # ==================== expresiones ====================
 
-        # agregar ret implícito si la función terminó sin return explícito
-        self.emit("ret", None, None, None)
+    def _visit_IntLiteral(self, node: IntLiteral) -> str:
+        t = self.tm.new_temp()
+        self.emit("copy", node.value, None, t)
+        return t
 
-        self.current_this = prev_this
+    def _visit_FloatLiteral(self, node: FloatLiteral) -> str:
+        t = self.tm.new_temp()
+        self.emit("copy", node.value, None, t)
+        return t
+
+    def _visit_StringLiteral(self, node: StringLiteral) -> str:
+        # en el parse-tree usabas ctx.getText(), que incluía comillas.
+        # Aquí las volvemos a agregar.
+        text = '"' + node.value.replace('"', '\\"') + '"'
+        t = self.tm.new_temp()
+        self.emit("copy", text, None, t)
+        return t
+
+    def _visit_BooleanLiteral(self, node: BooleanLiteral) -> str:
+        val = "true" if node.value else "false"
+        t = self.tm.new_temp()
+        self.emit("copy", val, None, t)
+        return t
+
+    def _visit_NullLiteral(self, node: NullLiteral) -> str:
+        # representamos null como 0
+        t = self.tm.new_temp()
+        self.emit("copy", 0, None, t)
+        return t
+
+    def _visit_ListLiteral(self, node: ListLiteral) -> str:
+        """
+        Genera:
+            alloc_array N, t_arr
+            setidx t_arr, i, elem...
+        """
+        size = len(node.elements)
+        t_arr = self.tm.new_temp()
+        self.emit("alloc_array", size, None, t_arr)
+
+        for i, e in enumerate(node.elements):
+            t_elem = self._visit(e)
+            self.tm.add_ref(t_elem)
+            self.emit("setidx", t_arr, i, t_elem)
+            self.tm.release_ref(t_elem)
+
+        return t_arr
+
+    def _visit_Var(self, node: Var) -> str:
+        return self._load_var(node.name)
+
+    def _visit_UnOp(self, node: UnOp) -> str:
+        t_expr = self._visit(node.expr)
+        self.tm.add_ref(t_expr)
+        t_res = self.tm.new_temp()
+
+        if node.op == "!":
+            self.emit("not", t_expr, None, t_res)
+        elif node.op == "+":
+            # +x → x
+            self.emit("copy", t_expr, None, t_res)
+        elif node.op == "-":
+            # -x → 0 - x
+            t_zero = self.tm.new_temp()
+            self.emit("copy", 0, None, t_zero)
+            self.emit("-", t_zero, t_expr, t_res)
+        else:
+            # fallback: sólo copia
+            self.emit("copy", t_expr, None, t_res)
+
+        self.tm.release_ref(t_expr)
+        return t_res
+
+    def _visit_BinOp(self, node: BinOp) -> str:
+        t_left = self._visit(node.left)
+        t_right = self._visit(node.right)
+        self.tm.add_ref(t_left)
+        self.tm.add_ref(t_right)
+
+        t_res = self.tm.new_temp()
+        self.emit(node.op, t_left, t_right, t_res)
+
+        self.tm.release_ref(t_left)
+        self.tm.release_ref(t_right)
+        return t_res
+
+    def _visit_Ternary(self, node: Ternary) -> str:
+        t_cond = self._visit(node.condition)
+        self.tm.add_ref(t_cond)
+
+        lbl_true = self.tm.newLabel()
+        lbl_false = self.tm.newLabel()
+        lbl_end = self.tm.newLabel()
+        t_res = self.tm.new_temp()
+
+        self.emit("iftrue_goto", t_cond, None, lbl_true)
+        self.emit("goto", None, None, lbl_false)
+        self.tm.release_ref(t_cond)
+
+        # false
+        self.emit("label", lbl_false, None, None)
+        t_f = self._visit(node.else_branch)
+        self.tm.add_ref(t_f)
+        self.emit("copy", t_f, None, t_res)
+        self.tm.release_ref(t_f)
+        self.emit("goto", None, None, lbl_end)
+
+        # true
+        self.emit("label", lbl_true, None, None)
+        t_t = self._visit(node.then_branch)
+        self.tm.add_ref(t_t)
+        self.emit("copy", t_t, None, t_res)
+        self.tm.release_ref(t_t)
+
+        self.emit("label", lbl_end, None, None)
+        return t_res
+
+    def _visit_Member(self, node: Member) -> str:
+        t_obj = self._visit(node.object)
+        self.tm.add_ref(t_obj)
+        t_res = self.tm.new_temp()
+        self.emit("getprop", t_obj, node.name, t_res)
+        self.tm.release_ref(t_obj)
+        return t_res
+
+    def _visit_Index(self, node: Index) -> str:
+        t_seq = self._visit(node.seq)
+        t_idx = self._visit(node.index)
+        self.tm.add_ref(t_seq)
+        self.tm.add_ref(t_idx)
+
+        t_res = self.tm.new_temp()
+        self.emit("getidx", t_seq, t_idx, t_res)
+
+        self.tm.release_ref(t_seq)
+        self.tm.release_ref(t_idx)
+        return t_res
+
+    def _visit_Call(self, node: Call) -> str:
+        """
+        Llamada a función:
+          - callee puede ser Var (función) o Member (método).
+        Convención:
+          emit("param", arg, None, None) para cada argumento
+          emit("call", label_o_temp, argc, t_res)
+        """
+        # 1) evaluar argumentos
+        arg_temps: list[str] = []
+        for a in node.args:
+            t_a = self._visit(a)
+            self.tm.add_ref(t_a)
+            arg_temps.append(t_a)
+
+        # 2) determinar el "destino" de la llamada
+        #    - función normal: label por nombre
+        #    - método: label "Clase.metodo" (ya lo resolvió el SemanticAnalyzer en FunctionSymbol)
+        callee = node.callee
+        label_or_temp = None
+
+        if isinstance(callee, Var):
+            # buscar FunctionSymbol
+            f_sym = self._current_func_symbol(callee.name)
+            if f_sym:
+                label_or_temp = f_sym.label or f_sym.name
+            else:
+                # fallback: nombre directo
+                label_or_temp = callee.name
+
+        elif isinstance(callee, Member):
+            # método: obj.m(...)
+            # evaluamos el objeto para 'this'
+            t_obj = self._visit(callee.object)
+            self.tm.add_ref(t_obj)
+
+            # asumimos label "Clase.metodo" ya conocido por SemanticAnalyzer,
+            # pero aquí no tenemos el tipo estático. Hacemos fallback:
+            label_or_temp = callee.name   # runtime usará dynamic dispatch si lo tienes
+
+            # Si quisieras pasar 'this' explícito como primer param, podrías:
+            # self.emit("param", t_obj, None, None)
+            # y aumentar argc en 1. De momento no, porque tu convención
+            # de runtime/métodos lo maneja distinto (cs_alloc_object/cs_getprop).
+            self.tm.release_ref(t_obj)
+
+        else:
+            # callee genérico: evaluar y usar indirecto
+            t_fun = self._visit(callee)
+            self.tm.add_ref(t_fun)
+            label_or_temp = t_fun   # llamada indirecta
+            # y no liberamos t_fun hasta después
+
+        # 3) emitir params
+        for t_a in arg_temps:
+            self.emit("param", t_a, None, None)
+            self.tm.release_ref(t_a)
+
+        # 4) llamada
+        t_res = self.tm.new_temp()
+        self.emit("call", label_or_temp, len(node.args), t_res)
+
+        return t_res
+
+    def _visit_New(self, node: New) -> str:
+        """
+        new Clase(args)
+        Usamos un runtime cs_alloc_object + llamada opcional a constructor.
+        Aquí emitimos un IR genérico:
+            alloc_object Clase, t_obj
+            param t_obj (opcional, si el ctor recibe this)
+            param args...
+            call Clase.constructor, argc, t_tmp
+        Pero para simplificar usamos una sola instrucción 'newobj'.
+        """
+        # Evaluar args
+        arg_temps = []
+        for a in node.args:
+            t_a = self._visit(a)
+            self.tm.add_ref(t_a)
+            arg_temps.append(t_a)
+
+        t_obj = self.tm.new_temp()
+        self.emit("newobj", node.class_name, len(node.args), t_obj)
+
+        for t_a in arg_temps:
+            self.tm.release_ref(t_a)
+
+        return t_obj
+
+    def _visit_This(self, node: This) -> str:
+        """
+        this → asumimos que el runtime tiene 'this' en algún registro / FP offset.
+        Aquí podríamos modelarlo como 'load FP[8]' pero para no acoplar,
+        lo representamos como una pseudo-variable 'this'.
+        """
+        return self._load_var("this")

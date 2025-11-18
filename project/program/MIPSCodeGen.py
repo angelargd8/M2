@@ -1,396 +1,443 @@
-"""
-Traductor del codigo de tres direcciones a MIPS
-"""
-
-from typing import List, Dict, Any
-
-"""
-asignador de registros temporales MIPS
-mapea nombres de temporales/variables a $t0-$t9
-
-si se queda sin registros, los reutiliza
-"""
-class RegAllocator:
-    def __init__(self):
-        self.free = ["$t0","$t1","$t2","$t3","$t4","$t5","$t6","$t7","$t8","$t9"]
-        self.map = {}
-
-    def get(self, name):
-        if name in self.map:
-            return self.map[name]
-        if self.free:
-            r = self.free.pop(0)
-            self.map[name] = r
-            return r
-
-        k = next(iter(self.map))
-        self.map[name] = self.map[k]
-        del self.map[k]
-        return self.map[name]
-    
-
-
 class MIPSCodeGen:
+    """
+    Generador MIPS corregido compatible con SPIM/QtSPIM.
+    - Usa un pool de registros para temporales (t0..tN -> $t0..$t9 rotando)
+    - Mueve todos los .asciiz a la sección .data
+    - Evita immediates fuera de rango (no usa andi 0xFFFFFFFC)
+    - Evita strings dentro de .text
+    - Prefijos únicos para strings (LSTR)
+    """
+
     def __init__(self, quads, symtab=None):
         self.quads = quads
         self.symtab = symtab
-        self.lines = []
-        self.regs = RegAllocator()
-        self.offsets = {}
-        self.next_off = -4
 
-    def emit(self, s=""):
-        self.lines.append(s)
+        self.text = []       # instrucciones MIPS (.text)
+        self.data = []       # strings .asciiz (.data)
+        self.label_counter = 0
+        self.str_counter = 0
 
-    # Frame offset for normal variables
-    def offset(self, name):
-        if name not in self.offsets:
-            self.offsets[name] = self.next_off
-            self.next_off -= 4
-        return f"{self.offsets[name]}($fp)"
+    # ------------------------------------------------------------
+    # utilidades básicas
+    # ------------------------------------------------------------
 
-    # FP[13] → -13($fp)
-    def is_fp_index(self, x):
-        return isinstance(x,str) and x.startswith("FP[") and x.endswith("]")
+    def emit(self, s: str):
+        self.text.append(s)
 
-    def fp_offset(self, x):
-        n = int(x[3:-1])
-        return f"-{n}($fp)"
+    def fresh(self) -> str:
+        """Genera labels únicos para código."""
+        self.label_counter += 1
+        return f"LGEN{self.label_counter}"
 
-    # Const?
-    def is_const(self, x):
-        if x is None: return False
-        if isinstance(x,(int,float)): return True
-        if isinstance(x,str) and x.isdigit(): return True
-        if isinstance(x,str) and x.startswith('-') and x[1:].isdigit(): return True
-        return False
+    def fresh_str(self) -> str:
+        """Genera labels únicos para strings en .data."""
+        self.str_counter += 1
+        return f"LSTR{self.str_counter}"
 
-    # Carga operand en registro
-    def load(self, val, reg):
-        if self.is_const(val):
-            self.emit(f"    li {reg}, {val}")
-        elif self.is_fp_index(val):
-            self.emit(f"    lw {reg}, {self.fp_offset(val)}")
-        elif isinstance(val,str):
-            self.emit(f"    lw {reg}, {self.offset(val)}")
+    def _reg_for_temp(self, tname: str) -> str:
+        """
+        Mapea un temporal lógico tN a un registro físico.
+        Estrategia simple: rotar en el pool $t0..$t9 usando N % 10.
+        """
+        idx = int(tname[1:])  # quitar la 't'
+        hw = idx % 10
+        return f"$t{hw}"
+
+    # ============================================================
+    # RESOLUCIÓN DE VALORES
+    # ============================================================
+
+    def _resolve(self, x):
+        """
+        Convierte un operando textual a una tupla (kind, val):
+        - ("reg",  "$t0")   : registro físico
+        - ("fp",   offset)  : desplazamiento desde $fp
+        - ("imm",  42)      : literal entero
+        - ("label","LSTR1") : etiqueta (string o global)
+        """
+
+        # None / null -> 0
+        if x is None or x == "None":
+            return ("imm", 0)
+
+        # TEMPORAL tN
+        if isinstance(x, str) and x.startswith("t") and x[1:].isdigit():
+            return ("reg", self._reg_for_temp(x))
+
+        # FRAME POINTER FP[n] (offset lógico -> bytes)
+        if isinstance(x, str) and x.startswith("FP["):
+            off = int(x[3:-1]) * 4
+            return ("fp", off)
+
+        # STRING literal "..."
+        if isinstance(x, str) and x.startswith('"') and x.endswith('"'):
+            lbl = self.fresh_str()
+            self.data.append(f'{lbl}: .asciiz {x}')
+            return ("label", lbl)
+
+        # LITERAL entero
+        if isinstance(x, int):
+            return ("imm", x)
+
+        if isinstance(x, str) and x.isdigit():
+            return ("imm", int(x))
+
+        # null explícito
+        if x == "null":
+            return ("imm", 0)
+
+        # Expresiones raras que NO deberían llegar aquí
+        if "*" in str(x) or "[" in str(x) or "]" in str(x):
+            raise Exception(f"_resolve: valor inválido en IR: {x}")
+
+        # VARIABLE (global / local con offset)
+        if isinstance(x, str):
+            sym = self.symtab.lookup(x) if self.symtab else None
+            if sym and hasattr(sym, "offset"):
+                # offset lógico -> bytes
+                return ("fp", sym.offset * 4)
+            # tratar como global / label
+            return ("label", x)
+
+        raise Exception(f"_resolve: tipo no soportado en _resolve: {x} ({type(x)})")
+
+    def _load(self, dest: str, x):
+        kind, val = self._resolve(x)
+
+        if kind == "imm":
+            self.emit(f"li {dest}, {val}")
+        elif kind == "reg":
+            self.emit(f"move {dest}, {val}")
+        elif kind == "fp":
+            self.emit(f"lw {dest}, {val}($fp)")
+        elif kind == "label":
+            self.emit(f"la {dest}, {val}")
         else:
-            self.emit(f"    # [ERROR] load desconocido {val}")
+            raise Exception(f"_load: tipo desconocido: {kind}")
 
-    # Guarda registro en destino
-    def save(self, reg, dest):
-        if self.is_fp_index(dest):
-            self.emit(f"    sw {reg}, {self.fp_offset(dest)}")
+    def _store(self, src: str, x):
+        # por si acaso
+        if src == "$None":
+            src = "$zero"
+
+        kind, val = self._resolve(x)
+
+        if kind == "fp":
+            self.emit(f"sw {src}, {val}($fp)")
+        elif kind == "label":
+            # asumir que la etiqueta apunta a una palabra reservada
+            self.emit(f"la $t9, {val}")
+            self.emit(f"sw {src}, 0($t9)")
         else:
-            self.emit(f"    sw {reg}, {self.offset(dest)}")
+            raise Exception(f"_store: destino inválido para store: {x} (kind={kind})")
 
-    # -------------------------------------------
-    #  MAIN ENTRY
-    # -------------------------------------------
-    def generate(self):
-        # self.emit(".data\n")
-        self.emit(".text")
-        self.emit(".globl main\n")
-        self.emit("main:")
-        self.emit("    move $fp, $sp\n")
+    # ============================================================
+    # GENERADOR PRINCIPAL
+    # ============================================================
 
-        for q in self.quads:
-            self.translate(q)
+    def generate(self) -> str:
+        OP_MAP = {
+            "+": "add",
+            "-": "sub",
+            "*": "mul",
+            "/": "div",
+            "%": "mod",
 
-        # main exit
-        self.emit("    li $v0, 10")
-        self.emit("    syscall")
-        return "\n".join(self.lines)
+            "<": "lt",
+            "<=": "le",
+            ">": "gt",
+            ">=": "ge",
+            "==": "eq",
+            "!=": "ne",
 
-    # -------------------------------------------
-    #  TRADUCTOR PRINCIPAL
-    # -------------------------------------------
-    def translate(self, quad):
-        op,a,b,r = quad
+            "&&": "LogicalAnd",
+            "||": "LogicalOr",
+        }
 
-        # COPY
-        if op == "copy":
-            self.gen_copy(a,r)
+        for instr in self.quads:
+            op, a, b, r = instr.op, instr.a, instr.b, instr.r
+            real_op = OP_MAP.get(op, op)
 
-        # LOAD/STORE
-        elif op == "load":
-            self.gen_load(a,r)
-        elif op == "store":
-            self.gen_store(a,r)
+            handler = getattr(self, f"gen_{real_op}", None)
+            if not handler:
+                raise Exception(f"MIPSCodeGen: instrucción no soportada: {op}")
+            handler(a, b, r)
 
-        # Arithmetic
-        elif op in ["+","-","*"]:
-            self.gen_arith(op,a,b,r)
+        # =====================================================
+        # ENSAMBLAR ARCHIVO FINAL
+        # =====================================================
 
-        # Comparisons → produce boolean (0/1)
-        elif op in ["<",">","<=",">=","==","!="]:
-            self.gen_compare(op,a,b,r)
+        final = []
 
-        # Branches
-        elif op == "iftrue_goto":
-            self.gen_iftrue(a,r)
-        elif op == "iffalse_goto":
-            self.gen_iffalse(a,r)
-        elif op == "if_goto":
-            self.gen_iftrue(a,r)
-        elif op == "goto":
-            self.emit(f"    j {r}")
+        # ----- SECCIÓN .data -----
+        if self.data:
+            final.append(".data")
+            final.extend(self.data)
+            final.append("")
 
-        elif op == "label":
-            self.emit(f"{a}:") if a else self.emit(f"{r}:")
+        # ----- SECCIÓN DE RUNTIME -----
+        final.append("# include runtime (ya está cargado por separado)")
+        final.append("")
 
-        # Function flow
-        elif op == "call":
-            self.gen_call(a)
-        elif op == "move_ret":
-            self.gen_move_ret(r)
-        elif op == "ret":
-            self.gen_ret(a)
-        elif op == "enter":
-            self.gen_enter(a)
-        elif op == "leave":
-            self.emit("    move $sp, $fp")
-        elif op == "push":
-            self.gen_push(a)
-        elif op == "pop":
-            self.gen_pop(a)
+        # ----- LAUNCHER PARA QTSPIM -----
+        final.append(".text")
+        # final.append(".globl __start")
+        # final.append("__start:")
+        # final.append("    jal main")
+        # final.append("    li $v0, 10")
+        # final.append("    syscall")
+        # final.append("")
 
-        # Print
-        elif op == "print":
-            self.gen_print(a)
 
-        elif op == "length":
-            self.gen_length(a, r)
+        # ----- CÓDIGO COMPILADO -----
+        final.append(".globl main")
+        final.append("")
+        final.extend(self.text)
 
-        elif op == "getidx":
-            self.gen_getidx(a, b, r)
+        return "\n".join(final)
 
-        elif op == "alloc":
-            self.gen_alloc(a, r)
 
-        elif op == "getprop":
-            self.gen_getprop(a, b, r)
+    # ============================================================
+    # LABEL
+    # ============================================================
 
-        elif op == "try_begin":
-            self.gen_try_begin(r)   # r = label del handler
+    def gen_label(self, a, b, r):
+        self.emit(f"{a}:")
+        # Prologue mínimo para main: usar el stack que QtSPIM ya pone en $sp
+        if a == "main":
+            self.emit("move $fp, $sp")
 
-        elif op == "try_end":
-            self.gen_try_end()
+    # ============================================================
+    # COPY / LOAD / STORE
+    # ============================================================
 
-        elif op == "catch_begin":
-            # a = nombre de la variable de error, r = label de salida del catch
-            self.gen_catch_begin(a, r)
+    def gen_copy(self, a, b, r):
+        self._load(self._reg_for_temp(r), a)
 
-        elif op == "catch_end":
-            self.gen_catch_end(r)   # r = label a donde saltar después del catch
+    def gen_load(self, a, b, r):
+        self._load(self._reg_for_temp(r), a)
 
+    def gen_store(self, a, b, r):
+        # determinar registro fuente
+        if isinstance(a, str) and a.startswith("t") and a[1:].isdigit():
+            src = self._reg_for_temp(a)
         else:
-            self.emit(f"    # [UNIMPLEMENTED] {quad}")
+            src = "$t0"
+            self._load(src, a)
 
-    # -------------------------------------------
-    # IMPLEMENTACIONES
-    # -------------------------------------------
+        self._store(src, r)
 
-    def gen_copy(self, src, dest):
-        reg = self.regs.get(dest)
-        self.load(src,reg)
-        self.save(reg,dest)
+    # ============================================================
+    # PRINT
+    # ============================================================
 
-    def gen_load(self, src, dest):
-        reg = self.regs.get(dest)
-        self.load(src,reg)
-        self.save(reg,dest)
+    def gen_print(self, a, b, r):
+        self._load("$a0", a)
+        self.emit("jal cs_print")
 
-    def gen_store(self, src, dest):
-        if src is None:
-            self.emit(f"    # store None → {dest}")
-            return
-        reg = self.regs.get(src)
-        self.load(src,reg)
-        self.save(reg,dest)
+    # ============================================================
+    # PARAM / CALL / RET
+    # ============================================================
 
-    def gen_arith(self, op,a,b,r):
-        r1 = self.regs.get("opA_"+r)
-        r2 = self.regs.get("opB_"+r)
-        rd = self.regs.get(r)
-        self.load(a,r1)
-        self.load(b,r2)
-        if op=="+": self.emit(f"    add {rd}, {r1}, {r2}")
-        if op=="-": self.emit(f"    sub {rd}, {r1}, {r2}")
-        if op=="*": self.emit(f"    mul {rd}, {r1}, {r2}")
-        self.save(rd,r)
+    def gen_param(self, a, b, r):
+        self._load("$t0", a)
+        self.emit("addi $sp, $sp, -4")
+        self.emit("sw $t0, 0($sp)")
 
-    def gen_compare(self, op,a,b,r):
-        r1 = self.regs.get("cmpA_"+r)
-        r2 = self.regs.get("cmpB_"+r)
-        rd = self.regs.get(r)
-        self.load(a,r1)
-        self.load(b,r2)
-        tmp = self.regs.get("tmp_"+r)
-
-        if op=="<":  self.emit(f"    slt {rd}, {r1}, {r2}")
-        elif op==">":
-            self.emit(f"    slt {rd}, {r2}, {r1}")
-        elif op=="<=":
-            self.emit(f"    slt {tmp}, {r2}, {r1}")
-            self.emit(f"    xori {rd}, {tmp}, 1")
-        elif op==">=":
-            self.emit(f"    slt {tmp}, {r1}, {r2}")
-            self.emit(f"    xori {rd}, {tmp}, 1")
-        elif op=="==":
-            self.emit(f"    sub {tmp}, {r1}, {r2}")
-            self.emit(f"    sltiu {rd}, {tmp}, 1")
-        elif op=="!=":
-            self.emit(f"    sub {tmp}, {r1}, {r2}")
-            self.emit(f"    sltu {rd}, $zero, {tmp}")
-
-        self.save(rd,r)
-
-    def gen_iftrue(self, cond, label):
-        r = self.regs.get(cond)
-        self.load(cond,r)
-        self.emit(f"    bne {r}, $zero, {label}")
-
-    def gen_iffalse(self, cond, label):
-        r = self.regs.get(cond)
-        self.load(cond,r)
-        self.emit(f"    beq {r}, $zero, {label}")
-
-    def gen_print(self, val):
-        r = self.regs.get("print")
-        self.load(val,r)
-        self.emit(f"    move $a0, {r}")
-        self.emit("    li $v0, 1")
-        self.emit("    syscall")
-
-    def gen_call(self, func):
-        self.emit(f"    jal {func}")
-
-    def gen_move_ret(self, dest):
-        reg = self.regs.get(dest)
-        self.emit(f"    move {reg}, $v0")
-        self.save(reg,dest)
-
-    def gen_ret(self, val):
-        if val is not None:
-            self.load(val,"$v0")
-        self.emit("    jr $ra")
-
-    def gen_enter(self, size):
-        self.emit(f"    addi $sp, $sp, -{size}")
-        self.emit("    move $fp, $sp")
-
-    def gen_push(self, what):
-        self.emit("    addi $sp, $sp, -4")
-        if what == "FP":
-            self.emit("    sw $fp, 0($sp)")
+    def gen_call(self, a, b, r):
+        # llamada directa por label
+        if isinstance(a, str) and not (a.startswith("t") and a[1:].isdigit()):
+            self.emit(f"jal {a}")
         else:
-            r = self.regs.get(what)
-            self.load(what,r)
-            self.emit(f"    sw {r}, 0($sp)")
+            # llamada indirecta: a es un temporal tN
+            kind, reg = self._resolve(a)
+            if kind != "reg":
+                raise Exception(f"gen_call: llamada indirecta con operando raro: {a}")
+            # jalr usa $ra como link implícitamente
+            self.emit(f"jalr {reg}")
 
-    def gen_pop(self, what):
-        if what == "FP":
-            self.emit("    lw $fp, 0($sp)")
-            self.emit("    addi $sp, $sp, 4")
-        else:
-            r = self.regs.get(what)
-            self.emit(f"    lw {r}, 0($sp)")
-            self.emit("    addi $sp, $sp, 4")
+        if r:
+            self.emit(f"move {self._reg_for_temp(r)}, $v0")
 
-    # ---------- Arrays & length ----------
+        nargs = int(b) if b else 0
+        if nargs > 0:
+            self.emit(f"addi $sp, $sp, {nargs * 4}")
 
-    def gen_length(self, arr, dest):
-        """
-        dest = length(arr)
-        Llamamos al runtime: cs_array_len(array) -> v0
-        a0 = array pointer
-        """
-        r_arr = self.regs.get("len_arr")
-        self.load(arr, r_arr)
-        self.emit(f"    move $a0, {r_arr}")
-        self.emit("    jal cs_array_len")
-        rd = self.regs.get(dest)
-        self.emit(f"    move {rd}, $v0")
-        self.save(rd, dest)
+    def gen_ret(self, a, b, r):
+        if a:
+            self._load("$v0", a)
+        self.emit("jr $ra")
 
-    def gen_getidx(self, arr, idx, dest):
-        """
-        dest = arr[idx]
-        runtime: cs_array_get(a0=array, a1=index) -> v0
-        """
-        r_arr = self.regs.get("getidx_arr")
-        r_idx = self.regs.get("getidx_idx")
-        self.load(arr, r_arr)
-        self.load(idx, r_idx)
-        self.emit(f"    move $a0, {r_arr}")
-        self.emit(f"    move $a1, {r_idx}")
-        self.emit("    jal cs_array_get")
-        rd = self.regs.get(dest)
-        self.emit(f"    move {rd}, $v0")
-        self.save(rd, dest)
+    # ============================================================
+    # ARITMÉTICAS
+    # ============================================================
 
-    # ---------- Objetos (stub) ----------
+    def gen_add(self, a, b, r):
+        self._binary("addu", a, b, r)
 
-    def gen_alloc(self, type_name, dest):
-        """
-        dest = alloc Type
-        Por ahora: llamamos a cs_alloc_object(type_id)
-        y dejamos TODO para mapear nombres -> IDs.
-        """
-        self.emit(f"    # alloc {type_name} -> {dest}")
-        # TODO: mapear type_name a un ID numérico
-        self.emit("    li $a0, 0   # [TODO] type_id para objetos")
-        self.emit("    jal cs_alloc_object")
-        rd = self.regs.get(dest)
-        self.emit(f"    move {rd}, $v0")
-        self.save(rd, dest)
+    def gen_sub(self, a, b, r):
+        self._binary("subu", a, b, r)
 
-    def gen_getprop(self, obj, prop_name, dest):
-        """
-        dest = obj.prop_name
-        Llamamos a cs_getprop(obj, prop_id)
-        """
-        self.emit(f"    # getprop {obj}.{prop_name} -> {dest}")
-        r_obj = self.regs.get("obj_" + str(dest))
-        self.load(obj, r_obj)
+    def gen_mul(self, a, b, r):
+        self._binary("mul", a, b, r)
 
-        # TODO: mapear prop_name -> offset/id
-        self.emit("    li $a1, 0   # [TODO] prop_id para campos")
-        self.emit(f"    move $a0, {r_obj}")
-        self.emit("    jal cs_getprop")
-        rd = self.regs.get(dest)
-        self.emit(f"    move {rd}, $v0")
-        self.save(rd, dest)
+    def gen_div(self, a, b, r):
+        self._binary_div(a, b, r)
 
-    # ---------- Exceptions / try-catch ----------
+    def gen_mod(self, a, b, r):
+        self._binary_mod(a, b, r)
 
-    def gen_try_begin(self, handler_label):
-        """
-        try_begin Lx  => push handler address
-        runtime: cs_push_handler(a0 = &Lx)
-        """
-        self.emit(f"    la  $a0, {handler_label}")
-        self.emit("    jal cs_push_handler")
+    def _binary(self, op, a, b, r):
+        self._load("$t0", a)
+        self._load("$t1", b)
+        self.emit(f"{op} {self._reg_for_temp(r)}, $t0, $t1")
 
-    def gen_try_end(self):
-        """
-        try_end => pop handler
-        runtime: cs_pop_handler()
-        """
-        self.emit("    jal cs_pop_handler")
+    def _binary_div(self, a, b, r):
+        self._load("$t0", a)
+        self._load("$t1", b)
+        self.emit("div $t0, $t1")
+        self.emit(f"mflo {self._reg_for_temp(r)}")
 
-    def gen_catch_begin(self, err_var, end_label):
-        """
-        catch_begin err, Lx
-        - la excepción ya hizo salto hasta aquí
-        - podemos guardar info del error si queremos
-        (por ahora sólo comentario)
-        """
-        self.emit(f"    # catch_begin {err_var}, {end_label}")
-        # TODO: last_error_code en err_var
+    def _binary_mod(self, a, b, r):
+        self._load("$t0", a)
+        self._load("$t1", b)
+        self.emit("div $t0, $t1")
+        self.emit(f"mfhi {self._reg_for_temp(r)}")
 
-    def gen_catch_end(self, end_label):
+    # ============================================================
+    # RELACIONALES / LÓGICAS
+    # ============================================================
+
+    def gen_lt(self, a, b, r):
+        self._binary("slt", a, b, r)
+
+    def gen_le(self, a, b, r):
+        # a <= b  <=>  !(b < a)
+        self._binary("slt", b, a, r)
+        self.emit(f"xori {self._reg_for_temp(r)}, {self._reg_for_temp(r)}, 1")
+
+    def gen_gt(self, a, b, r):
+        self._binary("slt", b, a, r)
+
+    def gen_ge(self, a, b, r):
+        self._binary("slt", a, b, r)
+        self.emit(f"xori {self._reg_for_temp(r)}, {self._reg_for_temp(r)}, 1")
+
+    def gen_eq(self, a, b, r):
+        self._binary("xor", a, b, r)
+        self.emit(f"sltiu {self._reg_for_temp(r)}, {self._reg_for_temp(r)}, 1")
+
+    def gen_ne(self, a, b, r):
+        self._binary("xor", a, b, r)
+        self.emit(
+            f"sltu {self._reg_for_temp(r)}, $zero, {self._reg_for_temp(r)}"
+        )
+
+    def gen_LogicalAnd(self, a, b, r):
+        self._binary("and", a, b, r)
+
+    def gen_LogicalOr(self, a, b, r):
+        self._binary("or", a, b, r)
+
+    # ============================================================
+    # GOTO / BRANCHES
+    # ============================================================
+
+    def gen_goto(self, a, b, r):
+        self.emit(f"j {r}")
+
+    def gen_iftrue_goto(self, a, b, r):
+        self._load("$t0", a)
+        self.emit(f"bne $t0, $zero, {r}")
+
+    def gen_iffalse_goto(self, a, b, r):
+        self._load("$t0", a)
+        self.emit(f"beq $t0, $zero, {r}")
+
+    # ============================================================
+    # ARRAYS
+    # ============================================================
+
+    def gen_alloc_array(self, a, b, r):
+        self._load("$a0", a)
+        self.emit("jal cs_array_new")
+        self.emit(f"move {self._reg_for_temp(r)}, $v0")
+
+    def gen_setidx(self, a, b, r):
+        self._load("$a0", a)
+        self._load("$a1", b)
+        self._load("$a2", r)
+        self.emit("jal cs_array_set")
+
+    def gen_getidx(self, a, b, r):
+        self._load("$a0", a)
+        self._load("$a1", b)
+        self.emit("jal cs_array_get")
+        self.emit(f"move {self._reg_for_temp(r)}, $v0")
+
+    def gen_array_length(self, a, b, r):
+        self._load("$a0", a)
+        self.emit("jal cs_array_len")
+        self.emit(f"move {self._reg_for_temp(r)}, $v0")
+
+    # ============================================================
+    # OBJETOS
+    # ============================================================
+
+    def gen_setprop(self, a, b, r):
+        lbl = self.fresh_str()
+        self.data.append(f'{lbl}: .asciiz "{b}"')
+        self._load("$a0", a)
+        self.emit(f"la $a1, {lbl}")
+        self._load("$a2", r)
+        self.emit("jal cs_setprop")
+
+    def gen_getprop(self, a, b, r):
+        lbl = self.fresh_str()
+        self.data.append(f'{lbl}: .asciiz "{b}"')
+        self._load("$a0", a)
+        self.emit(f"la $a1, {lbl}")
+        self.emit("jal cs_getprop")
+        self.emit(f"move {self._reg_for_temp(r)}, $v0")
+
+    # ============================================================
+    # EXCEPCIONES
+    # ============================================================
+
+    def gen_push_handler(self, a, b, r):
+        self.emit(f"la $a0, {a}")
+        self.emit("jal cs_push_handler")
+
+    def gen_pop_handler(self, a, b, r):
+        self.emit("jal cs_pop_handler")
+
+    def gen_get_exception(self, a, b, r):
+        self.emit("jal cs_get_exception")
+        self.emit(f"move {self._reg_for_temp(r)}, $v0")
+
+    def gen_throw(self, a, b, r):
+        self.emit("jal cs_throw")
+
+    def gen_newobj(self, a, b, r):
         """
-        catch_end ... Lx => saltar al final del try/catch
+        IR: newobj className, -, tX
+        produce:
+        a0 = sizeof(object)   # siempre 8 bytes (vtable + slot)
+        jal cs_alloc_object
+        move tX, v0
+        Luego llamar al constructor implícito si existe
         """
-        self.emit(f"    j {end_label}")
+
+        class_name = a  # string con el nombre de la clase
+
+        # 1) reservar objeto = cs_alloc_object()
+        self.emit("li $a0, 8")
+        self.emit("jal cs_alloc_object")
+        dest = self._reg_for_temp(r)
+        self.emit(f"move {dest}, $v0")
+
+        # 2) llamar a constructor si existe: _init_ClassName
+        ctor = f"_init_{class_name}"
+        self.emit(f"la $t0, {ctor}")
+        self.emit(f"move $a0, {dest}")   # this como param
+        self.emit("jalr $t0")
