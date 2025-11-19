@@ -72,26 +72,12 @@ def main(argv):
                 f.write(repr(i) + "\n")
         # -------------
 
-
         # -- generar mips --
         mips_gen = MIPSCodeGen(quads)
         mips_code = mips_gen.generate()
 
-        with open("./output/program.s", "w") as f: 
-            f.write(mips_code)
-        
-        print("\ncodigo mips guardado en ./output/program.s")
+        final_code = "\n\n# ===== Compiscript Program =====\n\n" + mips_code
 
-        # -- cargar runtime --
-        try:
-            with open("./runtime.asm", "r") as f:
-                runtime_code = f.read()
-        except FileNotFoundError:
-            print("ERROR: No se encontró ./runtime.asm")
-            sys.exit(1)
-
-        # combinar runtime con el programa
-        final_code = runtime_code + "\n\n# ===== Compiscript Program =====\n\n" + mips_code
 
         # Guardar final.s
         with open("./output/final.s", "w") as f:
