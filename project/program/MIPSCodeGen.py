@@ -1,443 +1,145 @@
+from IR import Instr
+from MIPSPrint import MIPSPrint
+from MIPSStrings import MIPSStrings
+
 class MIPSCodeGen:
-    """
-    Generador MIPS corregido compatible con SPIM/QtSPIM.
-    - Usa un pool de registros para temporales (t0..tN -> $t0..$t9 rotando)
-    - Mueve todos los .asciiz a la sección .data
-    - Evita immediates fuera de rango (no usa andi 0xFFFFFFFC)
-    - Evita strings dentro de .text
-    - Prefijos únicos para strings (LSTR)
-    """
-
-    def __init__(self, quads, symtab=None):
+    def __init__(self, quads):
         self.quads = quads
-        self.symtab = symtab
+        self.lines = []
 
-        self.text = []       # instrucciones MIPS (.text)
-        self.data = []       # strings .asciiz (.data)
-        self.label_counter = 0
-        self.str_counter = 0
+        # pool de strings
+        self.string_pool = {}
+        self.literal_labels = {}
 
-    # ------------------------------------------------------------
-    # utilidades básicas
-    # ------------------------------------------------------------
+        # mapeos locales
+        self.temp_string = {}
+        self.temp_int = {}
 
-    def emit(self, s: str):
-        self.text.append(s)
+        # punteros dinámicos (runtime)
+        self.runtime_ptrs = {}   # <- NUEVO
+        self.temp_ptr = {}       # <- NUEVO
 
-    def fresh(self) -> str:
-        """Genera labels únicos para código."""
-        self.label_counter += 1
-        return f"LGEN{self.label_counter}"
+        # módulos
+        self.print_mod = MIPSPrint(self)
+        self.strings_mod = MIPSStrings(self)
 
-    def fresh_str(self) -> str:
-        """Genera labels únicos para strings en .data."""
-        self.str_counter += 1
-        return f"LSTR{self.str_counter}"
 
-    def _reg_for_temp(self, tname: str) -> str:
-        """
-        Mapea un temporal lógico tN a un registro físico.
-        Estrategia simple: rotar en el pool $t0..$t9 usando N % 10.
-        """
-        idx = int(tname[1:])  # quitar la 't'
-        hw = idx % 10
-        return f"$t{hw}"
+    def emit(self, line=""):
+        self.lines.append(line)
 
     # ============================================================
-    # RESOLUCIÓN DE VALORES
+    # STRING LITERALS POOL
     # ============================================================
-
-    def _resolve(self, x):
+    def _add_string_literal(self, literal):
         """
-        Convierte un operando textual a una tupla (kind, val):
-        - ("reg",  "$t0")   : registro físico
-        - ("fp",   offset)  : desplazamiento desde $fp
-        - ("imm",  42)      : literal entero
-        - ("label","LSTR1") : etiqueta (string o global)
+        literal: incluye comillas, ej: "\"Hello world\""
+        Reutiliza label si ya existía ese literal.
         """
+        if literal in self.literal_labels:
+            return self.literal_labels[literal]
 
-        # None / null -> 0
-        if x is None or x == "None":
-            return ("imm", 0)
+        text = literal[1:-1]  # sin comillas
+        label = f"str_{len(self.string_pool)}"
+        self.string_pool[label] = text
+        self.literal_labels[literal] = label
+        return label
 
-        # TEMPORAL tN
-        if isinstance(x, str) and x.startswith("t") and x[1:].isdigit():
-            return ("reg", self._reg_for_temp(x))
-
-        # FRAME POINTER FP[n] (offset lógico -> bytes)
-        if isinstance(x, str) and x.startswith("FP["):
-            off = int(x[3:-1]) * 4
-            return ("fp", off)
-
-        # STRING literal "..."
-        if isinstance(x, str) and x.startswith('"') and x.endswith('"'):
-            lbl = self.fresh_str()
-            self.data.append(f'{lbl}: .asciiz {x}')
-            return ("label", lbl)
-
-        # LITERAL entero
-        if isinstance(x, int):
-            return ("imm", x)
-
-        if isinstance(x, str) and x.isdigit():
-            return ("imm", int(x))
-
-        # null explícito
-        if x == "null":
-            return ("imm", 0)
-
-        # Expresiones raras que NO deberían llegar aquí
-        if "*" in str(x) or "[" in str(x) or "]" in str(x):
-            raise Exception(f"_resolve: valor inválido en IR: {x}")
-
-        # VARIABLE (global / local con offset)
-        if isinstance(x, str):
-            sym = self.symtab.lookup(x) if self.symtab else None
-            if sym and hasattr(sym, "offset"):
-                # offset lógico -> bytes
-                return ("fp", sym.offset * 4)
-            # tratar como global / label
-            return ("label", x)
-
-        raise Exception(f"_resolve: tipo no soportado en _resolve: {x} ({type(x)})")
-
-    def _load(self, dest: str, x):
-        kind, val = self._resolve(x)
-
-        if kind == "imm":
-            self.emit(f"li {dest}, {val}")
-        elif kind == "reg":
-            self.emit(f"move {dest}, {val}")
-        elif kind == "fp":
-            self.emit(f"lw {dest}, {val}($fp)")
-        elif kind == "label":
-            self.emit(f"la {dest}, {val}")
-        else:
-            raise Exception(f"_load: tipo desconocido: {kind}")
-
-    def _store(self, src: str, x):
-        # por si acaso
-        if src == "$None":
-            src = "$zero"
-
-        kind, val = self._resolve(x)
-
-        if kind == "fp":
-            self.emit(f"sw {src}, {val}($fp)")
-        elif kind == "label":
-            # asumir que la etiqueta apunta a una palabra reservada
-            self.emit(f"la $t9, {val}")
-            self.emit(f"sw {src}, 0($t9)")
-        else:
-            raise Exception(f"_store: destino inválido para store: {x} (kind={kind})")
+    def _first_pass(self):
+        """
+        Solo asegura que TODOS los literales de strings
+        queden en string_pool antes de generar la sección .data.
+        """
+        for instr in self.quads:
+            if instr.op == "copy" and isinstance(instr.a, str) and instr.a.startswith('"'):
+                self._add_string_literal(instr.a)
 
     # ============================================================
-    # GENERADOR PRINCIPAL
+    # DATA SECTION
     # ============================================================
+    def _gen_data(self):
+        self.emit(".data")
+        for label, text in self.string_pool.items():
+            self.emit(f'{label}: .asciiz "{text}"')
+        self.emit('nl: .asciiz "\\n"')
+        self.emit("")
 
-    def generate(self) -> str:
-        OP_MAP = {
-            "+": "add",
-            "-": "sub",
-            "*": "mul",
-            "/": "div",
-            "%": "mod",
+    # ============================================================
+    # TEXT SECTION
+    # ============================================================
+    def _gen_text(self):
+        # Reseteamos mapeos por si acaso
+        self.temp_string = {}
+        self.temp_int = {}
 
-            "<": "lt",
-            "<=": "le",
-            ">": "gt",
-            ">=": "ge",
-            "==": "eq",
-            "!=": "ne",
-
-            "&&": "LogicalAnd",
-            "||": "LogicalOr",
-        }
+        self.emit(".text")
+        self.emit(".globl main")
 
         for instr in self.quads:
             op, a, b, r = instr.op, instr.a, instr.b, instr.r
-            real_op = OP_MAP.get(op, op)
 
-            handler = getattr(self, f"gen_{real_op}", None)
-            if not handler:
-                raise Exception(f"MIPSCodeGen: instrucción no soportada: {op}")
-            handler(a, b, r)
+            if op == "label":
+                self.emit(f"{a}:")
 
-        # =====================================================
-        # ENSAMBLAR ARCHIVO FINAL
-        # =====================================================
+            elif op == "copy":
+                # copy de string literal: tX = "texto"
+                if isinstance(a, str) and a.startswith('"'):
+                    label = self._add_string_literal(a)
+                    self.temp_string[r] = label
+                    # si antes era entero, lo limpiamos
+                    if r in self.temp_int:
+                        del self.temp_int[r]
 
-        final = []
+                # copy de literal entero: tX = 1
+                elif isinstance(a, int) or (isinstance(a, str) and a.isdigit()):
+                    self.temp_int[r] = int(a)
+                    # si antes era string, lo limpiamos
+                    if r in self.temp_string:
+                        del self.temp_string[r]
 
-        # ----- SECCIÓN .data -----
-        if self.data:
-            final.append(".data")
-            final.extend(self.data)
-            final.append("")
+                # otros tipos (más adelante: temporales, expresiones, etc.)
+                else:
+                    # por ahora solo limpiamos posibles registros
+                    if r in self.temp_string:
+                        del self.temp_string[r]
+                    if r in self.temp_int:
+                        del self.temp_int[r]
 
-        # ----- SECCIÓN DE RUNTIME -----
-        final.append("# include runtime (ya está cargado por separado)")
-        final.append("")
+            elif op == "print":
+                self.print_mod.handle_print(a)
 
-        # ----- LAUNCHER PARA QTSPIM -----
-        final.append(".text")
-        # final.append(".globl __start")
-        # final.append("__start:")
-        # final.append("    jal main")
-        # final.append("    li $v0, 10")
-        # final.append("    syscall")
-        # final.append("")
+            elif op == "ret":
+                # salida simple
+                self.emit("    li $v0, 10")
+                self.emit("    syscall")
 
+            elif op == "+":
+                # concatenación real de strings dinámicos
+                if a in self.temp_string and b in self.temp_string:
+                    self.strings_mod.concat_strings(a, b, r)
+                else:
+                    raise Exception("Operador + solo implementado para strings por ahora")
+                
 
-        # ----- CÓDIGO COMPILADO -----
-        final.append(".globl main")
-        final.append("")
-        final.extend(self.text)
-
-        return "\n".join(final)
-
-
-    # ============================================================
-    # LABEL
-    # ============================================================
-
-    def gen_label(self, a, b, r):
-        self.emit(f"{a}:")
-        # Prologue mínimo para main: usar el stack que QtSPIM ya pone en $sp
-        if a == "main":
-            self.emit("move $fp, $sp")
+            else:
+                # otros ops los ignoramos por ahora
+                pass
 
     # ============================================================
-    # COPY / LOAD / STORE
+    # PUBLIC API
     # ============================================================
+    def generate(self):
+        # limpiamos por si se reusa el objeto
+        self.lines = []
+        self.string_pool = {}
+        self.literal_labels = {}
 
-    def gen_copy(self, a, b, r):
-        self._load(self._reg_for_temp(r), a)
+        # 1) recolectar todos los literales para .data
+        self._first_pass()
 
-    def gen_load(self, a, b, r):
-        self._load(self._reg_for_temp(r), a)
+        # 2) escribir .data
+        self._gen_data()
 
-    def gen_store(self, a, b, r):
-        # determinar registro fuente
-        if isinstance(a, str) and a.startswith("t") and a[1:].isdigit():
-            src = self._reg_for_temp(a)
-        else:
-            src = "$t0"
-            self._load(src, a)
+        # 3) escribir .text
+        self._gen_text()
 
-        self._store(src, r)
-
-    # ============================================================
-    # PRINT
-    # ============================================================
-
-    def gen_print(self, a, b, r):
-        self._load("$a0", a)
-        self.emit("jal cs_print")
-
-    # ============================================================
-    # PARAM / CALL / RET
-    # ============================================================
-
-    def gen_param(self, a, b, r):
-        self._load("$t0", a)
-        self.emit("addi $sp, $sp, -4")
-        self.emit("sw $t0, 0($sp)")
-
-    def gen_call(self, a, b, r):
-        # llamada directa por label
-        if isinstance(a, str) and not (a.startswith("t") and a[1:].isdigit()):
-            self.emit(f"jal {a}")
-        else:
-            # llamada indirecta: a es un temporal tN
-            kind, reg = self._resolve(a)
-            if kind != "reg":
-                raise Exception(f"gen_call: llamada indirecta con operando raro: {a}")
-            # jalr usa $ra como link implícitamente
-            self.emit(f"jalr {reg}")
-
-        if r:
-            self.emit(f"move {self._reg_for_temp(r)}, $v0")
-
-        nargs = int(b) if b else 0
-        if nargs > 0:
-            self.emit(f"addi $sp, $sp, {nargs * 4}")
-
-    def gen_ret(self, a, b, r):
-        if a:
-            self._load("$v0", a)
-        self.emit("jr $ra")
-
-    # ============================================================
-    # ARITMÉTICAS
-    # ============================================================
-
-    def gen_add(self, a, b, r):
-        self._binary("addu", a, b, r)
-
-    def gen_sub(self, a, b, r):
-        self._binary("subu", a, b, r)
-
-    def gen_mul(self, a, b, r):
-        self._binary("mul", a, b, r)
-
-    def gen_div(self, a, b, r):
-        self._binary_div(a, b, r)
-
-    def gen_mod(self, a, b, r):
-        self._binary_mod(a, b, r)
-
-    def _binary(self, op, a, b, r):
-        self._load("$t0", a)
-        self._load("$t1", b)
-        self.emit(f"{op} {self._reg_for_temp(r)}, $t0, $t1")
-
-    def _binary_div(self, a, b, r):
-        self._load("$t0", a)
-        self._load("$t1", b)
-        self.emit("div $t0, $t1")
-        self.emit(f"mflo {self._reg_for_temp(r)}")
-
-    def _binary_mod(self, a, b, r):
-        self._load("$t0", a)
-        self._load("$t1", b)
-        self.emit("div $t0, $t1")
-        self.emit(f"mfhi {self._reg_for_temp(r)}")
-
-    # ============================================================
-    # RELACIONALES / LÓGICAS
-    # ============================================================
-
-    def gen_lt(self, a, b, r):
-        self._binary("slt", a, b, r)
-
-    def gen_le(self, a, b, r):
-        # a <= b  <=>  !(b < a)
-        self._binary("slt", b, a, r)
-        self.emit(f"xori {self._reg_for_temp(r)}, {self._reg_for_temp(r)}, 1")
-
-    def gen_gt(self, a, b, r):
-        self._binary("slt", b, a, r)
-
-    def gen_ge(self, a, b, r):
-        self._binary("slt", a, b, r)
-        self.emit(f"xori {self._reg_for_temp(r)}, {self._reg_for_temp(r)}, 1")
-
-    def gen_eq(self, a, b, r):
-        self._binary("xor", a, b, r)
-        self.emit(f"sltiu {self._reg_for_temp(r)}, {self._reg_for_temp(r)}, 1")
-
-    def gen_ne(self, a, b, r):
-        self._binary("xor", a, b, r)
-        self.emit(
-            f"sltu {self._reg_for_temp(r)}, $zero, {self._reg_for_temp(r)}"
-        )
-
-    def gen_LogicalAnd(self, a, b, r):
-        self._binary("and", a, b, r)
-
-    def gen_LogicalOr(self, a, b, r):
-        self._binary("or", a, b, r)
-
-    # ============================================================
-    # GOTO / BRANCHES
-    # ============================================================
-
-    def gen_goto(self, a, b, r):
-        self.emit(f"j {r}")
-
-    def gen_iftrue_goto(self, a, b, r):
-        self._load("$t0", a)
-        self.emit(f"bne $t0, $zero, {r}")
-
-    def gen_iffalse_goto(self, a, b, r):
-        self._load("$t0", a)
-        self.emit(f"beq $t0, $zero, {r}")
-
-    # ============================================================
-    # ARRAYS
-    # ============================================================
-
-    def gen_alloc_array(self, a, b, r):
-        self._load("$a0", a)
-        self.emit("jal cs_array_new")
-        self.emit(f"move {self._reg_for_temp(r)}, $v0")
-
-    def gen_setidx(self, a, b, r):
-        self._load("$a0", a)
-        self._load("$a1", b)
-        self._load("$a2", r)
-        self.emit("jal cs_array_set")
-
-    def gen_getidx(self, a, b, r):
-        self._load("$a0", a)
-        self._load("$a1", b)
-        self.emit("jal cs_array_get")
-        self.emit(f"move {self._reg_for_temp(r)}, $v0")
-
-    def gen_array_length(self, a, b, r):
-        self._load("$a0", a)
-        self.emit("jal cs_array_len")
-        self.emit(f"move {self._reg_for_temp(r)}, $v0")
-
-    # ============================================================
-    # OBJETOS
-    # ============================================================
-
-    def gen_setprop(self, a, b, r):
-        lbl = self.fresh_str()
-        self.data.append(f'{lbl}: .asciiz "{b}"')
-        self._load("$a0", a)
-        self.emit(f"la $a1, {lbl}")
-        self._load("$a2", r)
-        self.emit("jal cs_setprop")
-
-    def gen_getprop(self, a, b, r):
-        lbl = self.fresh_str()
-        self.data.append(f'{lbl}: .asciiz "{b}"')
-        self._load("$a0", a)
-        self.emit(f"la $a1, {lbl}")
-        self.emit("jal cs_getprop")
-        self.emit(f"move {self._reg_for_temp(r)}, $v0")
-
-    # ============================================================
-    # EXCEPCIONES
-    # ============================================================
-
-    def gen_push_handler(self, a, b, r):
-        self.emit(f"la $a0, {a}")
-        self.emit("jal cs_push_handler")
-
-    def gen_pop_handler(self, a, b, r):
-        self.emit("jal cs_pop_handler")
-
-    def gen_get_exception(self, a, b, r):
-        self.emit("jal cs_get_exception")
-        self.emit(f"move {self._reg_for_temp(r)}, $v0")
-
-    def gen_throw(self, a, b, r):
-        self.emit("jal cs_throw")
-
-    def gen_newobj(self, a, b, r):
-        """
-        IR: newobj className, -, tX
-        produce:
-        a0 = sizeof(object)   # siempre 8 bytes (vtable + slot)
-        jal cs_alloc_object
-        move tX, v0
-        Luego llamar al constructor implícito si existe
-        """
-
-        class_name = a  # string con el nombre de la clase
-
-        # 1) reservar objeto = cs_alloc_object()
-        self.emit("li $a0, 8")
-        self.emit("jal cs_alloc_object")
-        dest = self._reg_for_temp(r)
-        self.emit(f"move {dest}, $v0")
-
-        # 2) llamar a constructor si existe: _init_ClassName
-        ctor = f"_init_{class_name}"
-        self.emit(f"la $t0, {ctor}")
-        self.emit(f"move $a0, {dest}")   # this como param
-        self.emit("jalr $t0")
+        return "\n".join(self.lines)
