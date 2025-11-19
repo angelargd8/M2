@@ -281,6 +281,23 @@ class IRGenerator:
         self._visit(node.expr)
 
     def _visit_PrintStmt(self, node: PrintStmt):
+        # Caso 1: print de variable global (NO cargar a temporal)
+        if isinstance(node.expr, Var):
+            name = node.expr.name
+            # Si está en global_scope → usar print directo
+            if self.symtab and name in self.symtab.global_scope.symbols:
+                self.emit("print", name, None, None)
+                return
+
+        # Caso 2: print de boolean literal
+        if isinstance(node.expr, BooleanLiteral):
+            val = 1 if node.expr.value else 0
+            t = self.tm.new_temp()
+            self.emit("copy", val, None, t)
+            self.emit("print", t, None, None)
+            return
+
+        # Caso 3: expresión normal → evaluar, imprimir temporal
         t = self._visit(node.expr)
         self.tm.add_ref(t)
         self.emit("print", t, None, None)

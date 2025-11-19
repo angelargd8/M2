@@ -1,15 +1,20 @@
 from IR import Instr
 from MIPSPrint import MIPSPrint
 from MIPSStrings import MIPSStrings
+from MIPSVar import MIPSVar
+from SymbolTable import VariableSymbol
+from TempManager import TempManager
 
 class MIPSCodeGen:
-    def __init__(self, quads):
+    def __init__(self, quads, symtab):
         self.quads = quads
         self.lines = []
+        self.symtab = symtab
 
         # pool de strings
         self.string_pool = {}
         self.literal_labels = {}
+        self.global_data=[]
 
         # mapeos locales
         self.temp_string = {}
@@ -18,14 +23,26 @@ class MIPSCodeGen:
         # punteros dinámicos (runtime)
         self.runtime_ptrs = {}   # <- NUEVO
         self.temp_ptr = {}       # <- NUEVO
+        self.ptr_table = {}
 
         # módulos
         self.print_mod = MIPSPrint(self)
         self.strings_mod = MIPSStrings(self)
+        self.vars_mod = MIPSVar(self)
+        self.tm = TempManager()
 
 
     def emit(self, line=""):
         self.lines.append(line)
+
+
+    # regustrar variables globales
+    def _register_globals(self):
+        # recorrer todos los símbolos definidos en el scope global
+        for name, symbol in self.symtab.global_scope.symbols.items():
+            
+            if isinstance(symbol, VariableSymbol):
+                self.vars_mod.register_global(name, symbol)
 
     # ============================================================
     # STRING LITERALS POOL
@@ -58,8 +75,15 @@ class MIPSCodeGen:
     # ============================================================
     def _gen_data(self):
         self.emit(".data")
+
+        # Primero las variables globales
+        for line in self.global_data:
+            self.emit(line)
+
+        # Luego los strings literales
         for label, text in self.string_pool.items():
             self.emit(f'{label}: .asciiz "{text}"')
+
         self.emit('nl: .asciiz "\\n"')
         self.emit("")
 
@@ -85,16 +109,17 @@ class MIPSCodeGen:
                 if isinstance(a, str) and a.startswith('"'):
                     label = self._add_string_literal(a)
                     self.temp_string[r] = label
+                    self.temp_int.pop(r, None)
+                    self.temp_ptr.pop(r, None)
                     # si antes era entero, lo limpiamos
-                    if r in self.temp_int:
-                        del self.temp_int[r]
+                    # if r in self.temp_int:
+                    #     del self.temp_int[r]
 
                 # copy de literal entero: tX = 1
                 elif isinstance(a, int) or (isinstance(a, str) and a.isdigit()):
                     self.temp_int[r] = int(a)
-                    # si antes era string, lo limpiamos
-                    if r in self.temp_string:
-                        del self.temp_string[r]
+                    self.temp_string.pop(r, None)
+                    self.temp_ptr.pop(r, None)
 
                 # otros tipos (más adelante: temporales, expresiones, etc.)
                 else:
@@ -118,7 +143,24 @@ class MIPSCodeGen:
                     self.strings_mod.concat_strings(a, b, r)
                 else:
                     raise Exception("Operador + solo implementado para strings por ahora")
-                
+            
+            elif op == "loadvar":
+                # cargar variable global en un temporal
+                sym = self.symtab.global_scope.resolve(a)
+
+                t_reg = self.tm.get_reg(r)   # usa tu TempManager o algo parecido
+                if sym.type.name in ("int", "bool"):
+                    self.emit(f"    la {t_reg}, {a}")
+                    self.emit(f"    lw {t_reg}, 0({t_reg})")
+                    self.temp_int[r] = None  # marcar temporal como int
+
+                elif sym.type.name == "string":
+                    self.emit(f"    la {t_reg}, {a}")
+                    self.emit(f"    lw {t_reg}, 0({t_reg})")
+                    self.temp_ptr[r] = t_reg   # string pointer
+
+                else:
+                    raise Exception("Tipo global no soportado en loadvar")
 
             else:
                 # otros ops los ignoramos por ahora
@@ -135,6 +177,9 @@ class MIPSCodeGen:
 
         # 1) recolectar todos los literales para .data
         self._first_pass()
+
+        # globales
+        self._register_globals()
 
         # 2) escribir .data
         self._gen_data()

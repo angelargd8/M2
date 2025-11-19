@@ -3,22 +3,30 @@
 # ===== Compiscript Program =====
 
 .data
+PI: .word 314
+greeting: .word str_3
+flag: .word 0
+numbers: .word 1, 2, 3, 4, 5
+matrix_row_0: .word 1, 2
+matrix_row_1: .word 3, 4
+matrix: .word matrix_row_0, matrix_row_1
 str_0: .asciiz "Hello world"
 str_1: .asciiz "Hello"
-str_2: .asciiz "Compiscript"
+str_2: .asciiz "Compiscript concat"
+str_3: .asciiz "Hello, Compiscript!"
 nl: .asciiz "\n"
 
 .text
 .globl main
 main:
-    # print string: str_0
+    # print string (literal/global): str_0
     la $a0, str_0
     li $v0, 4
     syscall
     la $a0, nl
     li $v0, 4
     syscall
-    # print int literal: 1
+    # print int from temp t1 = 1
     li $a0, 1
     li $v0, 1
     syscall
@@ -48,9 +56,9 @@ concat_right_len_done:
     add $t4, $t1, $t3
     addi $t4, $t4, 1
     move $a0, $t4
-    li $v0, 9      # sbrk syscall
+    li $v0, 9         # syscall sbrk
     syscall
-    move $t5, $v0  # t5 = new buffer
+    move $t5, $v0     # t5 = new buffer
     la $t0, str_1
     move $t6, $t5
 concat_copy_left:
@@ -71,12 +79,32 @@ concat_copy_right:
     j concat_copy_right
 concat_right_done_copy:
     sb $zero, 0($t6)
-    move $v1, $t5     # result pointer for t_dest=t3
     # ===== CONCAT END =====
 
     # print dynamic string in t3
-    move $a0, $v1
+    move $a0, $t5
     li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    la $t0, PI
+    lw $a0, 0($t0)
+    li $v0, 1
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    la $t0, greeting
+    lw $a0, 0($t0)
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    la $t0, flag
+    lw $a0, 0($t0)
+    li $v0, 1
     syscall
     la $a0, nl
     li $v0, 4

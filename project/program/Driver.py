@@ -73,7 +73,7 @@ def main(argv):
         # -------------
 
         # -- generar mips --
-        mips_gen = MIPSCodeGen(quads)
+        mips_gen = MIPSCodeGen(quads, analyzer.symtab)
         mips_code = mips_gen.generate()
 
         final_code = "\n\n# ===== Compiscript Program =====\n\n" + mips_code
