@@ -12,5 +12,6 @@ let matrix: integer[][] = [[1, 2], [3, 4]];
 print(PI);
 print(greeting);
 print(flag);
-//print(numbers);
-//print(matrix);
+print(numbers);
+print(matrix);
+print("test");
