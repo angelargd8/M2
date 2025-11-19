@@ -85,7 +85,7 @@ if st.button("Run"):
                     
                     # Generación de código intermedio/tres direcciones
                     ir_gen = IRGenerator()
-                    ir = ir_gen.generate(tree)
+                    ir = ir_gen.generate(ast)
                     quads = to_quads(ir)
                     
                     # Guardar el TAC en un archivo
