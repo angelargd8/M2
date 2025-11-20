@@ -67,11 +67,14 @@ class MIPSVar:
 
         # ===== string =====
         if typ == "string":
-            if init_expr:
-                text = self._eval_string(init_expr)
+            # SOLO si el inicializador es literal "..." lo ponemos en .data
+            if isinstance(init_expr, StringLiteral):
+                text = self._eval_string(init_expr)      # devuelve el texto sin comillas
                 label = self.cg._add_string_literal(f"\"{text}\"")
                 self.cg.global_data.append(f"{name}: .word {label}")
             else:
+                # inicialización NO constante (por ejemplo: printer("hola"))
+                # dejamos 0 y el código MIPS hará el store en tiempo de ejecución
                 self.cg.global_data.append(f"{name}: .word 0")
             return
 

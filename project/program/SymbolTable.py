@@ -171,6 +171,15 @@ class SymbolTable:
 
     #define una variable en el scope actual
     def define_variable(self, var: VariableSymbol):
+        # Si estamos en el scope global → la variable es GLOBAL
+        if self.current_scope is self.global_scope:
+            var.storage = "global"
+            var.offset = 0      # no se usa para global
+            var.seg = ".data"   
+        else:
+            # Variable local (stack)
+            var.storage = "stack"
+
         self.current_scope.define(var)
 
     # define una funcion en el scope actual

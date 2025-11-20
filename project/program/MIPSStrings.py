@@ -1,114 +1,143 @@
-# Manejo de STRINGS dinámicos en tiempo de ejecución.
-# Implementa:  t_dest = t_left + t_right
-# - calcula longitudes en runtime
-# - usa sbrk para reservar memoria
-# - copia byte por byte
-# - guarda el puntero del resultado en ptr_table[t_dest]
+# ================================================================
+# Gestión de concatenación de strings:
+# - Soporta strings literales (.data)
+# - Soporta strings dinámicos (heap de syscall 9)
+# - Soporta variables globales string (label: .word str_k)
+# ================================================================
 
 class MIPSStrings:
     def __init__(self, cg):
         self.cg = cg  # referencia al MIPSCodeGen
 
+    # -------------------------------------------------------------
+    # Cargar puntero del string (literal, dinámico o global)
+    # -------------------------------------------------------------
+    def _load_str_ptr(self, temp_name, dst_reg):
+        cg = self.cg
+
+        # 1) string literal (temp -> label str_k en .data)
+        if temp_name in cg.temp_string:
+            label = cg.temp_string[temp_name]
+            cg.emit(f"    la {dst_reg}, {label}")
+            return
+
+        # 2) string dinámico (temp -> registro en ptr_table)
+        if temp_name in cg.ptr_table:
+            reg_ptr = cg.ptr_table[temp_name]   # "$tX"
+            cg.emit(f"    move {dst_reg}, {reg_ptr}")
+            return
+
+        # 3) variable global de tipo string: addFive: .word str_k
+        if (
+            isinstance(temp_name, str)
+            and hasattr(cg.symtab, "global_scope")
+            and temp_name in cg.symtab.global_scope.symbols
+        ):
+            sym = cg.symtab.global_scope.symbols[temp_name]
+            # Asumimos que el type tiene atributo name == "string"
+            if getattr(sym.type, "name", None) == "string":
+                # dst_reg = *addFive (cargar puntero al literal)
+                cg.emit(f"    la {dst_reg}, {temp_name}")
+                cg.emit(f"    lw {dst_reg}, 0({dst_reg})")
+                return
+
+        # Si llega aquí, no sabemos qué es
+        raise Exception(f"[MIPSStrings] '{temp_name}' no es string literal, dinámico ni global")
+
+    # -------------------------------------------------------------
+    # Concatena t_left + t_right → t_dest
+    # t_left y t_right deben representar strings (literal, global o heap)
+    # -------------------------------------------------------------
     def concat_strings(self, t_left, t_right, t_dest):
-        """
-        Concatena strings dinámicos:
-            t_dest = t_left + t_right
+        cg = self.cg
+        tm = cg.tm
 
-        El resultado es un puntero en memoria dinámica (heap).
-        """
+        cg.emit("")
+        cg.emit("    # ===== CONCAT START =====")
 
-        left_label  = self.cg.temp_string.get(t_left)
-        right_label = self.cg.temp_string.get(t_right)
+        # ---------------------------------------------------------
+        # 1) LEN LEFT
+        # ---------------------------------------------------------
+        self._load_str_ptr(t_left, "$t0")
+        L_l_loop = tm.newLabel()
+        L_l_done = tm.newLabel()
 
-        if left_label is None or right_label is None:
-            raise Exception(f"Concatenación espera strings, recibió {t_left}, {t_right}")
+        cg.emit("    move $t2, $zero  # len_left")
+        cg.emit(f"{L_l_loop}:")
+        cg.emit("    lb $t3, 0($t0)")
+        cg.emit(f"    beq $t3, $zero, {L_l_done}")
+        cg.emit("    addi $t2, $t2, 1")
+        cg.emit("    addi $t0, $t0, 1")
+        cg.emit(f"    j {L_l_loop}")
+        cg.emit(f"{L_l_done}:")
 
-        self.cg.emit("")
-        self.cg.emit("    # ===== CONCAT START =====")
+        # ---------------------------------------------------------
+        # 2) LEN RIGHT
+        # ---------------------------------------------------------
+        self._load_str_ptr(t_right, "$t0")
+        L_r_loop = tm.newLabel()
+        L_r_done = tm.newLabel()
 
-        # ================================================================
-        # 1) Calcular longitud de left en runtime
-        # ================================================================
-        self.cg.emit(f"    la $t0, {left_label}")   # ptr left
-        self.cg.emit("    move $t1, $zero")         # len_left = 0
+        cg.emit("    move $t4, $zero  # len_right")
+        cg.emit(f"{L_r_loop}:")
+        cg.emit("    lb $t3, 0($t0)")
+        cg.emit(f"    beq $t3, $zero, {L_r_done}")
+        cg.emit("    addi $t4, $t4, 1")
+        cg.emit("    addi $t0, $t0, 1")
+        cg.emit(f"    j {L_r_loop}")
+        cg.emit(f"{L_r_done}:")
 
-        self.cg.emit("concat_left_len_loop:")
-        self.cg.emit("    lb $t2, 0($t0)")
-        self.cg.emit("    beq $t2, $zero, concat_left_len_done")
-        self.cg.emit("    addi $t1, $t1, 1")
-        self.cg.emit("    addi $t0, $t0, 1")
-        self.cg.emit("    j concat_left_len_loop")
+        # ---------------------------------------------------------
+        # 3) RESERVAR MEMORIA
+        # ---------------------------------------------------------
+        cg.emit("    add $t5, $t2, $t4")
+        cg.emit("    addi $t5, $t5, 1")  # + '\0'
+        cg.emit("    move $a0, $t5")
+        cg.emit("    li $v0, 9")
+        cg.emit("    syscall")
+        cg.emit("    move $t6, $v0")     # buffer nuevo
 
-        self.cg.emit("concat_left_len_done:")
+        # registrar puntero dinámico
+        cg.ptr_table[t_dest] = "$t6"
+        cg.temp_ptr[t_dest] = "$t6"
+        cg.temp_string.pop(t_dest, None)
 
-        # ================================================================
-        # 2) Calcular longitud de right en runtime
-        # ================================================================
-        self.cg.emit(f"    la $t0, {right_label}")  # ptr right
-        self.cg.emit("    move $t3, $zero")         # len_right = 0
+        # ---------------------------------------------------------
+        # 4) COPIAR LEFT
+        # ---------------------------------------------------------
+        self._load_str_ptr(t_left, "$t0")
+        L_cl_loop = tm.newLabel()
+        L_cl_done = tm.newLabel()
 
-        self.cg.emit("concat_right_len_loop:")
-        self.cg.emit("    lb $t2, 0($t0)")
-        self.cg.emit("    beq $t2, $zero, concat_right_len_done")
-        self.cg.emit("    addi $t3, $t3, 1")
-        self.cg.emit("    addi $t0, $t0, 1")
-        self.cg.emit("    j concat_right_len_loop")
+        cg.emit("    move $t7, $t6  # write cursor")
+        cg.emit(f"{L_cl_loop}:")
+        cg.emit("    lb $t3, 0($t0)")
+        cg.emit(f"    beq $t3, $zero, {L_cl_done}")
+        cg.emit("    sb $t3, 0($t7)")
+        cg.emit("    addi $t7, $t7, 1")
+        cg.emit("    addi $t0, $t0, 1")
+        cg.emit(f"    j {L_cl_loop}")
+        cg.emit(f"{L_cl_done}:")
 
-        self.cg.emit("concat_right_len_done:")
+        # ---------------------------------------------------------
+        # 5) COPIAR RIGHT
+        # ---------------------------------------------------------
+        self._load_str_ptr(t_right, "$t0")
+        L_cr_loop = tm.newLabel()
+        L_cr_done = tm.newLabel()
 
-        # total_length = left + right + 1 (\0)
-        self.cg.emit("    add $t4, $t1, $t3")
-        self.cg.emit("    addi $t4, $t4, 1")
+        cg.emit(f"{L_cr_loop}:")
+        cg.emit("    lb $t3, 0($t0)")
+        cg.emit(f"    beq $t3, $zero, {L_cr_done}")
+        cg.emit("    sb $t3, 0($t7)")
+        cg.emit("    addi $t7, $t7, 1")
+        cg.emit("    addi $t0, $t0, 1")
+        cg.emit(f"    j {L_cr_loop}")
+        cg.emit(f"{L_cr_done}:")
 
-        # ================================================================
-        # 3) Reservar memoria con sbrk
-        # ================================================================
-        self.cg.emit("    move $a0, $t4")
-        self.cg.emit("    li $v0, 9         # syscall sbrk")
-        self.cg.emit("    syscall")
-        self.cg.emit("    move $t5, $v0     # t5 = new buffer")
-
-        # Guardamos: t_dest → registro con puntero del buffer
-        self.cg.ptr_table[t_dest] = "$t5"
-
-        # ================================================================
-        # 4) Copiar left al nuevo buffer
-        # ================================================================
-        self.cg.emit(f"    la $t0, {left_label}")   # ptr left
-        self.cg.emit("    move $t6, $t5")           # ptr destino
-
-        self.cg.emit("concat_copy_left:")
-        self.cg.emit("    lb $t2, 0($t0)")
-        self.cg.emit("    beq $t2, $zero, concat_left_done_copy")
-        self.cg.emit("    sb $t2, 0($t6)")
-        self.cg.emit("    addi $t6, $t6, 1")
-        self.cg.emit("    addi $t0, $t0, 1")
-        self.cg.emit("    j concat_copy_left")
-
-        self.cg.emit("concat_left_done_copy:")
-
-        # ================================================================
-        # 5) Copiar right después de left
-        # ================================================================
-        self.cg.emit(f"    la $t0, {right_label}")
-
-        self.cg.emit("concat_copy_right:")
-        self.cg.emit("    lb $t2, 0($t0)")
-        self.cg.emit("    beq $t2, $zero, concat_right_done_copy")
-        self.cg.emit("    sb $t2, 0($t6)")
-        self.cg.emit("    addi $t6, $t6, 1")
-        self.cg.emit("    addi $t0, $t0, 1")
-        self.cg.emit("    j concat_copy_right")
-
-        self.cg.emit("concat_right_done_copy:")
-
-        # ================================================================
-        # 6) Null terminator
-        # ================================================================
-        self.cg.emit("    sb $zero, 0($t6)")
-
-        # Registrar que t_dest es string dinámico
-        self.cg.temp_ptr[t_dest] = True
-
-        self.cg.emit("    # ===== CONCAT END =====")
-        self.cg.emit("")
+        # ---------------------------------------------------------
+        # 6) NULL TERMINATOR
+        # ---------------------------------------------------------
+        cg.emit("    sb $zero, 0($t7)")
+        cg.emit("    # ===== CONCAT END =====")
+        cg.emit("")

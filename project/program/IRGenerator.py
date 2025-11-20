@@ -66,15 +66,19 @@ class IRGenerator:
 
     def _addr_for_global_var(self, name: str) -> str:
         """
-        Usa la SymbolTable.global_scope para encontrar un VariableSymbol global
-        y devolver algo del estilo 'FP[offset]' (como lo hacías antes).
+        Usa la SymbolTable.global_scope para encontrar un VariableSymbol global.
+        Para variables globales de verdad, devolvemos el NOMBRE (label en .data).
         """
         if not self.symtab:
             return name
         sym = self.symtab.global_scope.resolve(name)
         if isinstance(sym, VariableSymbol):
-            # Igual que antes: delegamos a MIPSCodeGen interpretar storage/offset
-            return f"FP[{sym.offset}]"
+            if sym.storage == "global":
+                # variable global -> label en .data
+                return sym.name
+            else:
+                # locals/params que por error estén en global_scope
+                return f"FP[{sym.offset}]"
         return name
 
     def _current_func_symbol(self, name: str | None = None) -> FunctionSymbol | None:
@@ -148,6 +152,14 @@ class IRGenerator:
         """
         Guarda el contenido de t_value en una variable (global/local/param).
         """
+        sym = self.symtab.global_scope.resolve(name)
+        # -------- GLOBAL --------
+        if isinstance(sym, VariableSymbol) and sym.storage == "global":
+            # store_global r -> name
+            self.emit("store_global", t_value, None, name)
+            return
+
+        # -------- LOCAL/PARAM --------
         addr = self._addr_for_var(name)
         self.emit("store", t_value, None, addr)
 
