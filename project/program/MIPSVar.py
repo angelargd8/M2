@@ -7,7 +7,7 @@
 # Usando el AST en sym.decl_node.init
 # Además expone array_info para que MIPSPrint pueda imprimir arrays globales.
 
-from AstNodes import VarDecl, IntLiteral, BooleanLiteral, StringLiteral, ListLiteral
+from AstNodes import VarDecl, FloatLiteral, IntLiteral, BooleanLiteral, StringLiteral, ListLiteral
 
 class MIPSVar:
     def __init__(self, codegen):
@@ -26,6 +26,11 @@ class MIPSVar:
         if isinstance(expr, BooleanLiteral):
             return 1 if expr.value else 0
         raise Exception(f"MIPSVar: inicializador entero no soportado: {expr}")
+
+    def _eval_float(self, expr):
+        if isinstance(expr, FloatLiteral):
+            return float(expr.value)
+        raise Exception(f"MIPSVar: inicializador float no soportado: {expr}")
 
     def _eval_string(self, expr):
         if isinstance(expr, StringLiteral):
@@ -55,14 +60,30 @@ class MIPSVar:
 
         # ===== int =====
         if typ == "int":
-            val = self._eval_int_like(init_expr) if init_expr else 0
-            self.cg.global_data.append(f"{name}: .word {val}")
+            if isinstance(init_expr, IntLiteral) or isinstance(init_expr, BooleanLiteral):
+                val = self._eval_int_like(init_expr)
+                self.cg.global_data.append(f"{name}: .word {val}")
+            else:
+                # INICIALIZADOR NO CONSTANTE → dejar 0
+                self.cg.global_data.append(f"{name}: .word 0")
             return
 
+        # ===== float =====
+        if typ == "float":
+            if isinstance(init_expr, FloatLiteral):
+                val = self._eval_float(init_expr)
+                self.cg.global_data.append(f"{name}: .float {val}")
+            else:
+                self.cg.global_data.append(f"{name}: .float 0.0")
+            return
+        
         # ===== bool =====
         if typ == "bool":
-            val = self._eval_int_like(init_expr) if init_expr else 0
-            self.cg.global_data.append(f"{name}: .word {val}")
+            if isinstance(init_expr, IntLiteral) or isinstance(init_expr, BooleanLiteral):
+                val = self._eval_int_like(init_expr)
+                self.cg.global_data.append(f"{name}: .word {val}")
+            else:
+                self.cg.global_data.append(f"{name}: .word 0")
             return
 
         # ===== string =====
@@ -90,6 +111,30 @@ class MIPSVar:
                 # Guardamos meta para imprimir
                 self.array_info[name] = ("1D", vals)
                 return
+            # 1D array of strings
+            if all(isinstance(e, StringLiteral) for e in init_expr.elements):
+                str_labels = []
+                for e in init_expr.elements:
+                    text = self._eval_string(e)
+                    label = self.cg._add_string_literal(f"\"{text}\"")
+                    str_labels.append(label)
+                vals_str = ", ".join(str_label for str_label in str_labels)
+                self.cg.global_data.append(f"{name}: .word {vals_str}")
+
+                # Guardamos meta para imprimir
+                self.array_info[name] = ("1D_STR", str_labels)
+                return
+            
+            # 1D array of floats
+            if all(isinstance(e, FloatLiteral) for e in init_expr.elements):
+                vals = [self._eval_float(e) for e in init_expr.elements]
+                vals_str = ", ".join(str(v) for v in vals)
+                self.cg.global_data.append(f"{name}: .float {vals_str}")
+
+                # Guardamos meta para imprimir
+                self.array_info[name] = ("1D_FLOAT", vals)
+                return
+            
 
             # 2D array
             if self._is_list_of_list_of_ints(init_expr):
@@ -111,6 +156,66 @@ class MIPSVar:
                 )
 
                 self.array_info[name] = ("2D", rows)
+                return
+            
+            # 2D array of floats
+            if all(
+                isinstance(elem, ListLiteral) and
+                all(isinstance(e, FloatLiteral) for e in elem.elements)
+                for elem in init_expr.elements
+            ):
+                row_labels = []
+                rows = []
+
+                for i, row in enumerate(init_expr.elements):
+                    row_vals = [self._eval_float(e) for e in row.elements]
+                    rows.append(row_vals)
+
+                    row_label = f"{name}_row_{i}"
+                    self.cg.global_data.append(
+                        f"{row_label}: .float {', '.join(str(x) for x in row_vals)}"
+                    )
+                    row_labels.append(row_label)
+
+                self.cg.global_data.append(
+                    f"{name}: .word " + ", ".join(row_labels)
+                )
+
+                self.array_info[name] = ("2D_FLOAT", rows)
+                return
+            
+            # 2D array of strings
+            if all(
+                isinstance(elem, ListLiteral) and
+                all(isinstance(e, StringLiteral) for e in elem.elements)
+                for elem in init_expr.elements
+            ):
+                row_labels = []
+                rows = []
+
+                for i, row in enumerate(init_expr.elements):
+                    str_labels = []
+                    row_texts = []
+
+                    for e in row.elements:
+                        text = self._eval_string(e)
+                        label = self.cg._add_string_literal(f"\"{text}\"")
+                        str_labels.append(label)
+                        row_texts.append(text)
+
+                    rows.append(row_texts)
+
+                    row_label = f"{name}_row_{i}"
+                    self.cg.global_data.append(
+                        f"{row_label}: .word {', '.join(str_label for str_label in str_labels)}"
+                    )
+                    row_labels.append(row_label)
+
+                self.cg.global_data.append(
+                    f"{name}: .word " + ", ".join(row_labels)
+                )
+
+                self.array_info[name] = ("2D_STR", rows)
                 return
 
             raise Exception(

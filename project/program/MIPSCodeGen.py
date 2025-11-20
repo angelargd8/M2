@@ -6,6 +6,7 @@ from SymbolTable import VariableSymbol, FunctionSymbol
 from TempManager import TempManager
 from MIPSArrays import MIPSArrays
 from MIPSFun import MIPSFun
+from MIPSOp import MIPSOp
 
 
 class MIPSCodeGen:
@@ -35,6 +36,7 @@ class MIPSCodeGen:
         self.arrays_mod = MIPSArrays(self)
         self.tm = TempManager()
         self.fun_mod = MIPSFun(self)
+        self.op_mod = MIPSOp(self)
 
     def emit(self, line=""):
         self.lines.append(line)
@@ -235,81 +237,92 @@ class MIPSCodeGen:
                 self.emit(f"    la $t9, {r}")   # r = nombre de global
                 self.emit(f"    sw {reg}, 0($t9)")
 
+            elif op in ["+", "-", "*", "/", "%"]:
+                self.op_mod.arithmetic(op, a, b, r)
 
-            # ---------- + (ints / strings) ----------
-            elif op == "+":
-                is_a_str = a in self.temp_string or a in self.temp_ptr
-                is_b_str = b in self.temp_string or b in self.temp_ptr
-                a_is_literal = a in self.temp_string
-                b_is_literal = b in self.temp_string
+            elif op in ["<", "<=", ">", ">=", "==", "!="]:
+                self.op_mod.comparison(op, a, b, r)
 
-                # string + string
-                if is_a_str and is_b_str:
-                    self.strings_mod.concat_strings(a, b, r)
+            elif op in ["&&", "||"]:
+                self.op_mod.logical(op, a, b, r)
 
-                # int + int
-                elif (not is_a_str) and (not is_b_str):
-                    reg_a = self.tm.get_reg(a)
-                    reg_b = self.tm.get_reg(b)
-                    reg_r = self.tm.get_reg(r)
-                    self._load(a, reg_a)
-                    self._load(b, reg_b)
-                    self.emit(f"    add {reg_r}, {reg_a}, {reg_b}")
-                    self.temp_int[r] = 0
-                    self.temp_ptr.pop(r, None)
-                    self.temp_string.pop(r, None)
-                    self.ptr_table.pop(r, None)
+            elif op == "not":
+                self.op_mod.unary_not(a, r)
 
-                # string literal + int
-                elif a_is_literal and (not is_b_str):
-                    reg_b = self.tm.get_reg(b)
-                    self._load(b, reg_b)
-                    self.emit(f"    move $a0, {reg_b}")
-                    self.emit("    jal cs_int_to_string")
-                    reg_tmp = self.tm.get_reg(r)
-                    self.emit(f"    move {reg_tmp}, $v0")
-                    self.temp_ptr[r] = reg_tmp
-                    self.ptr_table[r] = reg_tmp
-                    self.strings_mod.concat_strings(a, r, r)
+            # # ---------- + (ints / strings) ----------
+            # elif op == "+":
+            #     is_a_str = a in self.temp_string or a in self.temp_ptr
+            #     is_b_str = b in self.temp_string or b in self.temp_ptr
+            #     a_is_literal = a in self.temp_string
+            #     b_is_literal = b in self.temp_string
 
-                # int + string literal
-                elif b_is_literal and (not is_a_str):
-                    reg_a = self.tm.get_reg(a)
-                    self._load(a, reg_a)
-                    self.emit(f"    move $a0, {reg_a}")
-                    self.emit("    jal cs_int_to_string")
-                    reg_tmp = self.tm.get_reg(r)
-                    self.emit(f"    move {reg_tmp}, $v0")
-                    self.temp_ptr[r] = reg_tmp
-                    self.ptr_table[r] = reg_tmp
-                    self.strings_mod.concat_strings(r, b, r)
+            #     # string + string
+            #     if is_a_str and is_b_str:
+            #         self.strings_mod.concat_strings(a, b, r)
 
-                # string dinámico + int
-                elif (a in self.temp_ptr) and (not is_b_str):
-                    reg_b = self.tm.get_reg(b)
-                    self._load(b, reg_b)
-                    self.emit(f"    move $a0, {reg_b}")
-                    self.emit("    jal cs_int_to_string")
-                    reg_tmp = self.tm.get_reg(r)
-                    self.emit(f"    move {reg_tmp}, $v0")
-                    self.temp_ptr[r] = reg_tmp
-                    self.ptr_table[r] = reg_tmp
-                    self.strings_mod.concat_strings(a, r, r)
+            #     # int + int
+            #     elif (not is_a_str) and (not is_b_str):
+            #         reg_a = self.tm.get_reg(a)
+            #         reg_b = self.tm.get_reg(b)
+            #         reg_r = self.tm.get_reg(r)
+            #         self._load(a, reg_a)
+            #         self._load(b, reg_b)
+            #         self.emit(f"    add {reg_r}, {reg_a}, {reg_b}")
+            #         self.temp_int[r] = 0
+            #         self.temp_ptr.pop(r, None)
+            #         self.temp_string.pop(r, None)
+            #         self.ptr_table.pop(r, None)
 
-                # int + string dinámico
-                elif (b in self.temp_ptr) and (not is_a_str):
-                    reg_a = self.tm.get_reg(a)
-                    self._load(a, reg_a)
-                    self.emit(f"    move $a0, {reg_a}")
-                    self.emit("    jal cs_int_to_string")
-                    reg_tmp = self.tm.get_reg(r)
-                    self.emit(f"    move {reg_tmp}, $v0")
-                    self.temp_ptr[r] = reg_tmp
-                    self.ptr_table[r] = reg_tmp
-                    self.strings_mod.concat_strings(r, b, r)
+            #     # string literal + int
+            #     elif a_is_literal and (not is_b_str):
+            #         reg_b = self.tm.get_reg(b)
+            #         self._load(b, reg_b)
+            #         self.emit(f"    move $a0, {reg_b}")
+            #         self.emit("    jal cs_int_to_string")
+            #         reg_tmp = self.tm.get_reg(r)
+            #         self.emit(f"    move {reg_tmp}, $v0")
+            #         self.temp_ptr[r] = reg_tmp
+            #         self.ptr_table[r] = reg_tmp
+            #         self.strings_mod.concat_strings(a, r, r)
 
-                else:
-                    raise Exception(f"Operador + no soportado entre {a} y {b}")
+            #     # int + string literal
+            #     elif b_is_literal and (not is_a_str):
+            #         reg_a = self.tm.get_reg(a)
+            #         self._load(a, reg_a)
+            #         self.emit(f"    move $a0, {reg_a}")
+            #         self.emit("    jal cs_int_to_string")
+            #         reg_tmp = self.tm.get_reg(r)
+            #         self.emit(f"    move {reg_tmp}, $v0")
+            #         self.temp_ptr[r] = reg_tmp
+            #         self.ptr_table[r] = reg_tmp
+            #         self.strings_mod.concat_strings(r, b, r)
+
+            #     # string dinámico + int
+            #     elif (a in self.temp_ptr) and (not is_b_str):
+            #         reg_b = self.tm.get_reg(b)
+            #         self._load(b, reg_b)
+            #         self.emit(f"    move $a0, {reg_b}")
+            #         self.emit("    jal cs_int_to_string")
+            #         reg_tmp = self.tm.get_reg(r)
+            #         self.emit(f"    move {reg_tmp}, $v0")
+            #         self.temp_ptr[r] = reg_tmp
+            #         self.ptr_table[r] = reg_tmp
+            #         self.strings_mod.concat_strings(a, r, r)
+
+            #     # int + string dinámico
+            #     elif (b in self.temp_ptr) and (not is_a_str):
+            #         reg_a = self.tm.get_reg(a)
+            #         self._load(a, reg_a)
+            #         self.emit(f"    move $a0, {reg_a}")
+            #         self.emit("    jal cs_int_to_string")
+            #         reg_tmp = self.tm.get_reg(r)
+            #         self.emit(f"    move {reg_tmp}, $v0")
+            #         self.temp_ptr[r] = reg_tmp
+            #         self.ptr_table[r] = reg_tmp
+            #         self.strings_mod.concat_strings(r, b, r)
+
+            #     else:
+            #         raise Exception(f"Operador + no soportado entre {a} y {b}")
 
             # ---------- ARRAYS ----------
             elif op == "alloc_array":

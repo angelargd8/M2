@@ -48,96 +48,64 @@ class MIPSStrings:
     # Concatena t_left + t_right → t_dest
     # t_left y t_right deben representar strings (literal, global o heap)
     # -------------------------------------------------------------
-    def concat_strings(self, t_left, t_right, t_dest):
-        cg = self.cg
-        tm = cg.tm
+    def concat_strings(self, a, b, r):
+        # Obtener puntero de A
+        reg_a = self.cg.tm.get_reg(a)
+        if a in self.cg.temp_string:
+            label = self.cg.temp_string[a]
+            self.cg.emit(f"    la {reg_a}, {label}")
+        elif a in self.cg.ptr_table:
+            self.cg.emit(f"    move {reg_a}, {self.cg.ptr_table[a]}")
+        else:
+            raise Exception(f"concat: A no es string: {a}")
 
-        cg.emit("")
-        cg.emit("    # ===== CONCAT START =====")
+        # Obtener puntero de B
+        reg_b = self.cg.tm.get_reg(b)
+        if b in self.cg.temp_string:
+            label = self.cg.temp_string[b]
+            self.cg.emit(f"    la {reg_b}, {label}")
+        elif b in self.cg.ptr_table:
+            self.cg.emit(f"    move {reg_b}, {self.cg.ptr_table[b]}")
+        else:
+            raise Exception(f"concat: B no es string: {b}")
 
-        # ---------------------------------------------------------
-        # 1) LEN LEFT
-        # ---------------------------------------------------------
-        self._load_str_ptr(t_left, "$t0")
-        L_l_loop = tm.newLabel()
-        L_l_done = tm.newLabel()
+        # Reservar buffer
+        reg_r = self.cg.tm.get_reg(r)
+        self.cg.emit("    li $a0, 512")
+        self.cg.emit("    li $v0, 9")
+        self.cg.emit("    syscall")
+        self.cg.emit(f"    move {reg_r}, $v0")
 
-        cg.emit("    move $t2, $zero  # len_left")
-        cg.emit(f"{L_l_loop}:")
-        cg.emit("    lb $t3, 0($t0)")
-        cg.emit(f"    beq $t3, $zero, {L_l_done}")
-        cg.emit("    addi $t2, $t2, 1")
-        cg.emit("    addi $t0, $t0, 1")
-        cg.emit(f"    j {L_l_loop}")
-        cg.emit(f"{L_l_done}:")
+        # Punteros de recorrido
+        self.cg.emit(f"    move $t4, {reg_r}")  # cursor destino
+        self.cg.emit(f"    move $t5, {reg_a}")  # cursor en A
+        self.cg.emit(f"    move $t6, {reg_b}")  # cursor en B
 
-        # ---------------------------------------------------------
-        # 2) LEN RIGHT
-        # ---------------------------------------------------------
-        self._load_str_ptr(t_right, "$t0")
-        L_r_loop = tm.newLabel()
-        L_r_done = tm.newLabel()
+        # Copiar A
+        self.cg.emit(f"concat_copy_a_{r}:")
+        self.cg.emit("    lb $t0, 0($t5)")
+        self.cg.emit("    sb $t0, 0($t4)")
+        self.cg.emit(f"    beq $t0, $zero, concat_copy_b_{r}")
+        self.cg.emit("    addi $t5, $t5, 1")
+        self.cg.emit("    addi $t4, $t4, 1")
+        self.cg.emit(f"    j concat_copy_a_{r}")
 
-        cg.emit("    move $t4, $zero  # len_right")
-        cg.emit(f"{L_r_loop}:")
-        cg.emit("    lb $t3, 0($t0)")
-        cg.emit(f"    beq $t3, $zero, {L_r_done}")
-        cg.emit("    addi $t4, $t4, 1")
-        cg.emit("    addi $t0, $t0, 1")
-        cg.emit(f"    j {L_r_loop}")
-        cg.emit(f"{L_r_done}:")
+        # Copiar B
+        self.cg.emit(f"concat_copy_b_{r}:")
+        self.cg.emit("    lb $t0, 0($t6)")
+        self.cg.emit("    sb $t0, 0($t4)")
+        self.cg.emit(f"    beq $t0, $zero, concat_done_{r}")
+        self.cg.emit("    addi $t6, $t6, 1")
+        self.cg.emit("    addi $t4, $t4, 1")
+        self.cg.emit(f"    j concat_copy_b_{r}")
 
-        # ---------------------------------------------------------
-        # 3) RESERVAR MEMORIA
-        # ---------------------------------------------------------
-        cg.emit("    add $t5, $t2, $t4")
-        cg.emit("    addi $t5, $t5, 1")  # + '\0'
-        cg.emit("    move $a0, $t5")
-        cg.emit("    li $v0, 9")
-        cg.emit("    syscall")
-        cg.emit("    move $t6, $v0")     # buffer nuevo
+        self.cg.emit(f"concat_done_{r}:")
 
-        # registrar puntero dinámico
-        cg.ptr_table[t_dest] = "$t6"
-        cg.temp_ptr[t_dest] = "$t6"
-        cg.temp_string.pop(t_dest, None)
+        # Registrar puntero dinámico
+        self.cg.ptr_table[r] = reg_r
+        self.cg.temp_ptr[r] = reg_r
+        if r in self.cg.temp_string:
+            del self.cg.temp_string[r]
 
-        # ---------------------------------------------------------
-        # 4) COPIAR LEFT
-        # ---------------------------------------------------------
-        self._load_str_ptr(t_left, "$t0")
-        L_cl_loop = tm.newLabel()
-        L_cl_done = tm.newLabel()
+        
 
-        cg.emit("    move $t7, $t6  # write cursor")
-        cg.emit(f"{L_cl_loop}:")
-        cg.emit("    lb $t3, 0($t0)")
-        cg.emit(f"    beq $t3, $zero, {L_cl_done}")
-        cg.emit("    sb $t3, 0($t7)")
-        cg.emit("    addi $t7, $t7, 1")
-        cg.emit("    addi $t0, $t0, 1")
-        cg.emit(f"    j {L_cl_loop}")
-        cg.emit(f"{L_cl_done}:")
-
-        # ---------------------------------------------------------
-        # 5) COPIAR RIGHT
-        # ---------------------------------------------------------
-        self._load_str_ptr(t_right, "$t0")
-        L_cr_loop = tm.newLabel()
-        L_cr_done = tm.newLabel()
-
-        cg.emit(f"{L_cr_loop}:")
-        cg.emit("    lb $t3, 0($t0)")
-        cg.emit(f"    beq $t3, $zero, {L_cr_done}")
-        cg.emit("    sb $t3, 0($t7)")
-        cg.emit("    addi $t7, $t7, 1")
-        cg.emit("    addi $t0, $t0, 1")
-        cg.emit(f"    j {L_cr_loop}")
-        cg.emit(f"{L_cr_done}:")
-
-        # ---------------------------------------------------------
-        # 6) NULL TERMINATOR
-        # ---------------------------------------------------------
-        cg.emit("    sb $zero, 0($t7)")
-        cg.emit("    # ===== CONCAT END =====")
-        cg.emit("")

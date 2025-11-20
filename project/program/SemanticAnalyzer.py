@@ -387,7 +387,7 @@ class SemanticAnalyzer:
 
         #layout de parámetros (rel FP hacia arriba)
         param_off: Dict[str, int] = {}
-        sp = 16  # FP+16 (ret 8 + old FP 8) — ajusta a tu ABI si difiere
+        sp = 8  # FP+16 (ret 8 + old FP 8) — ajusta a tu ABI si difiere
         for p in f.params:
             sz = sizeof(p.type)
             al = max(1, getattr(p.type, "align", 4))

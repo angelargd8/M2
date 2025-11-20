@@ -21,21 +21,21 @@ class MIPSFun:
 
     # ----------------------------------------------------
     # PROLOG / EPILOG
-    # ----------------------------------------------------
     def emit_prolog(self, func_label):
-        """Prolog estándar para una función."""
         self.current_func = func_label
         cg = self.cg
-        cg.emit("    # ---- PROLOG ----")
+
+        f = cg.symtab.global_scope.resolve(func_label)
+
         cg.emit("    addi $sp, $sp, -8")
         cg.emit("    sw $fp, 4($sp)")
         cg.emit("    sw $ra, 0($sp)")
         cg.emit("    move $fp, $sp")
-        # Aquí podrías reservar espacio extra para locales:
-        # if cg.symtab and hasattr(cg.symtab, 'get_frame_size'):
-        #     fs = cg.symtab.get_frame_size(func_label)
-        #     if fs > 0:
-        #         cg.emit(f"    addi $sp, $sp, -{fs}")
+
+        # RESERVAR LOCALES
+        if f and hasattr(f, "frame_size") and f.frame_size > 0:
+            cg.emit(f"    addi $sp, $sp, -{f.frame_size}")
+
 
     def emit_epilog(self):
         """Epilog estándar."""
@@ -63,16 +63,19 @@ class MIPSFun:
         cg.emit(f"    sw {reg}, 0($sp)")
 
     def emit_call(self, func_label, argc, t_res):
-        """
-        call func_label, argc, t_res
-        (por ahora ignoramos argc en MIPS puro, pero el IR lo lleva
-         por coherencia, ya que los args están en la pila)
-        """
         cg = self.cg
         cg.emit(f"    jal {func_label}")
-        # resultado de la función en $v0
+        if argc and argc > 0:
+            cg.emit(f"    addi $sp, $sp, {4 * argc}")
         reg_r = cg.tm.get_reg(t_res)
         cg.emit(f"    move {reg_r}, $v0")
+
+        # invalidar meta vieja del temporal
+        cg.temp_int.pop(t_res, None)
+        cg.temp_string.pop(t_res, None)
+        cg.temp_ptr.pop(t_res, None)
+        cg.ptr_table.pop(t_res, None)
+
 
     # ----------------------------------------------------
     # LOAD / STORE con FP[offset]
