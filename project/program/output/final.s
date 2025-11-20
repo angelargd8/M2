@@ -3,8 +3,11 @@
 # ===== Compiscript Program =====
 
 .data
-addFive: .word 0
-str_0: .asciiz "5 + 1 = "
+g_x: .word 3
+str_0: .asciiz "x is 3"
+str_1: .asciiz "x is NOT 3"
+str_2: .asciiz "should not print"
+str_3: .asciiz "x is still 3"
 nl: .asciiz "\n"
 str_lbr: .asciiz "["
 str_rbr: .asciiz "]"
@@ -68,43 +71,22 @@ cs_its_done:
     addi $sp, $sp, 12
     jr $ra
 
-makeAdder:
-    addi $sp, $sp, -8
-    sw $fp, 4($sp)
-    sw $ra, 0($sp)
-    move $fp, $sp
-    lw $t0, 8($fp)
-    move $t0, $t0
-    li $t1, 1
-    add $t2, $t0, $t1
-    move $t2, $t2
-    move $v0, $t2
-    # ---- EPILOG ----
-    move $sp, $fp
-    lw $ra, 0($sp)
-    lw $fp, 4($sp)
-    addi $sp, $sp, 8
-    jr $ra
-    # ---- EPILOG ----
-    move $sp, $fp
-    lw $ra, 0($sp)
-    lw $fp, 4($sp)
-    addi $sp, $sp, 8
-    jr $ra
 main:
     addi $sp, $sp, -8
     sw $fp, 4($sp)
     sw $ra, 0($sp)
     move $fp, $sp
-    li $t2, 5
-    addi $sp, $sp, -4
-    sw $t2, 0($sp)
-    jal makeAdder
-    addi $sp, $sp, 4
-    move $t2, $v0
+    li $t0, 3
+    la $t9, g_x
+    sw $t0, 0($t9)
+    la $t0, g_x
+    lw $t0, 0($t0)
+    move $t0, $t0
+    li $t1, 3
+    xor $t2, $t0, $t1
+    sltiu $t2, $t2, 1
     move $t2, $t2
-    la $t9, addFive
-    sw $t2, 0($t9)
+    beq $t2, $zero, L1
     # print string (literal/global): str_0
     la $a0, str_0
     li $v0, 4
@@ -112,12 +94,40 @@ main:
     la $a0, nl
     li $v0, 4
     syscall
-    la $t0, addFive
-    lw $a0, 0($t0)
-    li $v0, 1
+    j L2
+L1:
+    # print string (literal/global): str_1
+    la $a0, str_1
+    li $v0, 4
     syscall
     la $a0, nl
     li $v0, 4
     syscall
+L2:
+    la $t2, g_x
+    lw $t2, 0($t2)
+    move $t2, $t2
+    li $t1, 3
+    xor $t0, $t2, $t1
+    sltu $t0, $zero, $t0
+    move $t0, $t0
+    beq $t0, $zero, L3
+    # print string (literal/global): str_2
+    la $a0, str_2
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    j L4
+L3:
+    # print string (literal/global): str_3
+    la $a0, str_3
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+L4:
     li $v0, 10
     syscall

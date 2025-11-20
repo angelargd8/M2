@@ -1,11 +1,8 @@
-# Manejo de variables globales y locales.
-# Se integra con SymbolTable para obtener:
-# - nombre
-# - tipo (int, string, boolean, array, matrix)
-# - valores iniciales
-# Construye la sección .data para variables globales
-# Usando el AST en sym.decl_node.init
-# Además expone array_info para que MIPSPrint pueda imprimir arrays globales.
+# ===============================================================
+# Manejo de variables globales con etiquetas seguras
+# Cada global se renombra como g_<name> para evitar conflicto
+# con registros ($a0, $t1, etc.) en SPIM.
+# ===============================================================
 
 from AstNodes import VarDecl, FloatLiteral, IntLiteral, BooleanLiteral, StringLiteral, ListLiteral
 
@@ -13,12 +10,10 @@ class MIPSVar:
     def __init__(self, codegen):
         self.cg = codegen
 
-        # Para que MIPSPrint pueda saber cómo imprimir un array global
-        # array_info[name] = ("1D", [1,2,3,...])
-        # array_info[name] = ("2D", [[1,2],[3,4],...])
+        # Para impresión de arreglos
         self.array_info = {}
 
-    # ---------------- helpers ----------------
+    # ------------ helpers ------------
 
     def _eval_int_like(self, expr):
         if isinstance(expr, IntLiteral):
@@ -38,18 +33,19 @@ class MIPSVar:
         return None
 
     def _is_list_of_ints(self, lit: ListLiteral):
-        return all(isinstance(e, IntLiteral) or isinstance(e, BooleanLiteral)
-                   for e in lit.elements)
+        return all(isinstance(e, (IntLiteral, BooleanLiteral)) for e in lit.elements)
 
     def _is_list_of_list_of_ints(self, lit: ListLiteral):
-        return all(
-            isinstance(elem, ListLiteral) and self._is_list_of_ints(elem)
-            for elem in lit.elements
-        )
+        return all(isinstance(e, ListLiteral) and self._is_list_of_ints(e)
+                   for e in lit.elements)
 
-    # ---------------- registro global ----------------
+    # ------------ registro global ------------
 
     def register_global(self, name, sym):
+
+        # etiqueta segura g_name
+        safe = f"g_{name}"
+        sym.mips_label = safe    # guardar el label real usado en MIPS
 
         typ = sym.type.name
         decl = sym.decl_node
@@ -60,172 +56,91 @@ class MIPSVar:
 
         # ===== int =====
         if typ == "int":
-            if isinstance(init_expr, IntLiteral) or isinstance(init_expr, BooleanLiteral):
+            if isinstance(init_expr, (IntLiteral, BooleanLiteral)):
                 val = self._eval_int_like(init_expr)
-                self.cg.global_data.append(f"{name}: .word {val}")
+                self.cg.global_data.append(f"{safe}: .word {val}")
             else:
-                # INICIALIZADOR NO CONSTANTE → dejar 0
-                self.cg.global_data.append(f"{name}: .word 0")
+                self.cg.global_data.append(f"{safe}: .word 0")
             return
 
         # ===== float =====
         if typ == "float":
             if isinstance(init_expr, FloatLiteral):
                 val = self._eval_float(init_expr)
-                self.cg.global_data.append(f"{name}: .float {val}")
+                self.cg.global_data.append(f"{safe}: .float {val}")
             else:
-                self.cg.global_data.append(f"{name}: .float 0.0")
+                self.cg.global_data.append(f"{safe}: .float 0.0")
             return
-        
+
         # ===== bool =====
         if typ == "bool":
-            if isinstance(init_expr, IntLiteral) or isinstance(init_expr, BooleanLiteral):
+            if isinstance(init_expr, (IntLiteral, BooleanLiteral)):
                 val = self._eval_int_like(init_expr)
-                self.cg.global_data.append(f"{name}: .word {val}")
+                self.cg.global_data.append(f"{safe}: .word {val}")
             else:
-                self.cg.global_data.append(f"{name}: .word 0")
+                self.cg.global_data.append(f"{safe}: .word 0")
             return
 
         # ===== string =====
         if typ == "string":
-            # SOLO si el inicializador es literal "..." lo ponemos en .data
             if isinstance(init_expr, StringLiteral):
-                text = self._eval_string(init_expr)      # devuelve el texto sin comillas
+                text = self._eval_string(init_expr)
                 label = self.cg._add_string_literal(f"\"{text}\"")
-                self.cg.global_data.append(f"{name}: .word {label}")
+                self.cg.global_data.append(f"{safe}: .word {label}")
             else:
-                # inicialización NO constante (por ejemplo: printer("hola"))
-                # dejamos 0 y el código MIPS hará el store en tiempo de ejecución
-                self.cg.global_data.append(f"{name}: .word 0")
+                self.cg.global_data.append(f"{safe}: .word 0")
             return
 
-        # ===== array (1D or 2D) =====
+        # ===== Arrays 1D/2D =====
         if isinstance(init_expr, ListLiteral):
 
-            # 1D array
+            # 1D ints
             if self._is_list_of_ints(init_expr):
                 vals = [self._eval_int_like(e) for e in init_expr.elements]
                 vals_str = ", ".join(str(v) for v in vals)
-                self.cg.global_data.append(f"{name}: .word {vals_str}")
-
-                # Guardamos meta para imprimir
+                self.cg.global_data.append(f"{safe}: .word {vals_str}")
                 self.array_info[name] = ("1D", vals)
                 return
-            # 1D array of strings
+
+            # 1D strings
             if all(isinstance(e, StringLiteral) for e in init_expr.elements):
-                str_labels = []
+                labels = []
                 for e in init_expr.elements:
                     text = self._eval_string(e)
-                    label = self.cg._add_string_literal(f"\"{text}\"")
-                    str_labels.append(label)
-                vals_str = ", ".join(str_label for str_label in str_labels)
-                self.cg.global_data.append(f"{name}: .word {vals_str}")
-
-                # Guardamos meta para imprimir
-                self.array_info[name] = ("1D_STR", str_labels)
+                    lbl = self.cg._add_string_literal(f"\"{text}\"")
+                    labels.append(lbl)
+                self.cg.global_data.append(f"{safe}: .word {', '.join(labels)}")
+                self.array_info[name] = ("1D_STR", labels)
                 return
-            
-            # 1D array of floats
+
+            # 1D floats
             if all(isinstance(e, FloatLiteral) for e in init_expr.elements):
                 vals = [self._eval_float(e) for e in init_expr.elements]
                 vals_str = ", ".join(str(v) for v in vals)
-                self.cg.global_data.append(f"{name}: .float {vals_str}")
-
-                # Guardamos meta para imprimir
+                self.cg.global_data.append(f"{safe}: .float {vals_str}")
                 self.array_info[name] = ("1D_FLOAT", vals)
                 return
-            
 
-            # 2D array
+            # 2D ints
             if self._is_list_of_list_of_ints(init_expr):
                 row_labels = []
                 rows = []
 
                 for i, row in enumerate(init_expr.elements):
-                    row_vals = [self._eval_int_like(e) for e in row.elements]
-                    rows.append(row_vals)
+                    vals = [self._eval_int_like(x) for x in row.elements]
+                    rows.append(vals)
 
-                    row_label = f"{name}_row_{i}"
+                    row_label = f"{safe}_row_{i}"
                     self.cg.global_data.append(
-                        f"{row_label}: .word {', '.join(str(x) for x in row_vals)}"
+                        f"{row_label}: .word {', '.join(str(x) for x in vals)}"
                     )
                     row_labels.append(row_label)
 
-                self.cg.global_data.append(
-                    f"{name}: .word " + ", ".join(row_labels)
-                )
-
+                self.cg.global_data.append(f"{safe}: .word {', '.join(row_labels)}")
                 self.array_info[name] = ("2D", rows)
                 return
-            
-            # 2D array of floats
-            if all(
-                isinstance(elem, ListLiteral) and
-                all(isinstance(e, FloatLiteral) for e in elem.elements)
-                for elem in init_expr.elements
-            ):
-                row_labels = []
-                rows = []
 
-                for i, row in enumerate(init_expr.elements):
-                    row_vals = [self._eval_float(e) for e in row.elements]
-                    rows.append(row_vals)
+            raise Exception("MIPSVar: tipo de array no soportado")
 
-                    row_label = f"{name}_row_{i}"
-                    self.cg.global_data.append(
-                        f"{row_label}: .float {', '.join(str(x) for x in row_vals)}"
-                    )
-                    row_labels.append(row_label)
-
-                self.cg.global_data.append(
-                    f"{name}: .word " + ", ".join(row_labels)
-                )
-
-                self.array_info[name] = ("2D_FLOAT", rows)
-                return
-            
-            # 2D array of strings
-            if all(
-                isinstance(elem, ListLiteral) and
-                all(isinstance(e, StringLiteral) for e in elem.elements)
-                for elem in init_expr.elements
-            ):
-                row_labels = []
-                rows = []
-
-                for i, row in enumerate(init_expr.elements):
-                    str_labels = []
-                    row_texts = []
-
-                    for e in row.elements:
-                        text = self._eval_string(e)
-                        label = self.cg._add_string_literal(f"\"{text}\"")
-                        str_labels.append(label)
-                        row_texts.append(text)
-
-                    rows.append(row_texts)
-
-                    row_label = f"{name}_row_{i}"
-                    self.cg.global_data.append(
-                        f"{row_label}: .word {', '.join(str_label for str_label in str_labels)}"
-                    )
-                    row_labels.append(row_label)
-
-                self.cg.global_data.append(
-                    f"{name}: .word " + ", ".join(row_labels)
-                )
-
-                self.array_info[name] = ("2D_STR", rows)
-                return
-
-            raise Exception(
-                f"MIPSVar: tipo de array no soportado para global '{name}'"
-            )
-
-        # Sin inicializador → solo una palabra
-        if typ in ("array", "list"):
-            self.cg.global_data.append(f"{name}: .word 0")
-            return
-
-        # Default
-        self.cg.global_data.append(f"{name}: .word 0")
+        # default sin inicializador
+        self.cg.global_data.append(f"{safe}: .word 0")

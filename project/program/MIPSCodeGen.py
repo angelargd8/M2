@@ -7,6 +7,8 @@ from TempManager import TempManager
 from MIPSArrays import MIPSArrays
 from MIPSFun import MIPSFun
 from MIPSOp import MIPSOp
+from MIPSSen import MIPSSen
+
 
 
 class MIPSCodeGen:
@@ -39,6 +41,7 @@ class MIPSCodeGen:
         self.arrays_mod = MIPSArrays(self)
         
         self.fun_mod = MIPSFun(self)
+        self.sen_mod = MIPSSen(self)
         self.op_mod = MIPSOp(self)
 
     def emit(self, line=""):
@@ -242,15 +245,16 @@ class MIPSCodeGen:
 
             elif op == "store_global":
                 sym = self.symtab.global_scope.resolve(r)
+                label = sym.mips_label                       # <<<<< usa el label seguro
+
                 if sym.type.name == "float":
-                    # t_val puede ser float o int → manejamos ambos:
+                    # float → float
                     if a in self.temp_float:
                         f = self.tm.get_freg(a)
-                        # cargar literal si hace falta:
                         if self.temp_float[a] is not None:
                             self.emit(f"    li.s {f}, {self.temp_float[a]}")
                             self.temp_float[a] = None
-                        self.emit(f"    la $t9, {r}")
+                        self.emit(f"    la $t9, {label}")
                         self.emit(f"    s.s {f}, 0($t9)")
                     else:
                         # int → float
@@ -259,13 +263,16 @@ class MIPSCodeGen:
                         self._load(a, ri)
                         self.emit(f"    mtc1 {ri}, {rf}")
                         self.emit(f"    cvt.s.w {rf}, {rf}")
-                        self.emit(f"    la $t9, {r}")
+                        self.emit(f"    la $t9, {label}")
                         self.emit(f"    s.s {rf}, 0($t9)")
+
                 else:
+                    # int / bool / string pointer
                     reg = self.tm.get_reg(a)
                     self._load(a, reg)
-                    self.emit(f"    la $t9, {r}")
+                    self.emit(f"    la $t9, {label}")
                     self.emit(f"    sw {reg}, 0($t9)")
+
 
             elif op in ["-", "*", "/", "%"]:
                 self.op_mod.arithmetic(op, a, b, r)
@@ -299,34 +306,34 @@ class MIPSCodeGen:
             elif op == "array_length":
                 self.arrays_mod.length(a, r)
 
+            # sentencias de control
+            elif op == "iftrue_goto":
+                self.sen_mod.iftrue(a, r)
+
+            elif op == "iffalse_goto":
+                self.sen_mod.iffalse(a, r)
+
+            elif op == "goto":
+                self.sen_mod.goto(r)
+
             # ---------- LOADVAR (globales) ----------
+            
             elif op == "loadvar":
                 sym = self.symtab.global_scope.resolve(a)
+                label = sym.mips_label                       # <<<<<< etiqueta segura (g_a, g_b, etc.)
                 reg = self.tm.get_reg(r)
 
+                # int/bool
                 if sym.type.name in ("int", "bool"):
-                    self.emit(f"    la {reg}, {a}")
+                    self.emit(f"    la {reg}, {label}")
                     self.emit(f"    lw {reg}, 0({reg})")
 
-                    # NO asumir valor en tiempo de compilación
+                    # limpiar metadatos
                     self.temp_int.pop(r, None)
                     self.temp_string.pop(r, None)
                     self.temp_ptr.pop(r, None)
                     self.ptr_table.pop(r, None)
 
-
-                elif sym.type.name in ("string", "array"):
-                    self.emit(f"    la {reg}, {a}")
-                    self.emit(f"    lw {reg}, 0({reg})")
-                    self.temp_ptr[r] = reg
-                    self.ptr_table[r] = reg
-                    self.temp_int.pop(r, None)
-                    self.temp_string.pop(r, None)
-
-                else:
-                    raise Exception("Tipo global no soportado en loadvar")
-
-            # otros opcodes ignorados por ahora
 
     # ==========================================================
     # LABELS DE FUNCIONES
