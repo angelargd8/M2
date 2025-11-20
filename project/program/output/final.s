@@ -3,11 +3,15 @@
 # ===== Compiscript Program =====
 
 .data
-g_x: .word 3
-str_0: .asciiz "x is 3"
-str_1: .asciiz "x is NOT 3"
-str_2: .asciiz "should not print"
-str_3: .asciiz "x is still 3"
+g_a: .word 5
+g_b: .word 10
+g_c: .word 10
+str_0: .asciiz "B is greater than A"
+str_1: .asciiz "A is greater than B"
+str_2: .asciiz "A is greater than or equal to B"
+str_3: .asciiz "A is less than or equal to B"
+str_4: .asciiz "C is greater than or equal to B"
+str_5: .asciiz "C is less than or equal to B"
 nl: .asciiz "\n"
 str_lbr: .asciiz "["
 str_rbr: .asciiz "]"
@@ -76,15 +80,22 @@ main:
     sw $fp, 4($sp)
     sw $ra, 0($sp)
     move $fp, $sp
-    li $t0, 3
-    la $t9, g_x
+    li $t0, 5
+    la $t9, g_a
     sw $t0, 0($t9)
-    la $t0, g_x
+    li $t0, 10
+    la $t9, g_b
+    sw $t0, 0($t9)
+    li $t0, 10
+    la $t9, g_c
+    sw $t0, 0($t9)
+    la $t0, g_a
     lw $t0, 0($t0)
+    la $t1, g_b
+    lw $t1, 0($t1)
     move $t0, $t0
-    li $t1, 3
-    xor $t2, $t0, $t1
-    sltiu $t2, $t2, 1
+    move $t1, $t1
+    slt $t2, $t0, $t1
     move $t2, $t2
     beq $t2, $zero, L1
     # print string (literal/global): str_0
@@ -94,8 +105,16 @@ main:
     la $a0, nl
     li $v0, 4
     syscall
-    j L2
 L1:
+    la $t2, g_a
+    lw $t2, 0($t2)
+    la $t1, g_b
+    lw $t1, 0($t1)
+    move $t2, $t2
+    move $t1, $t1
+    sgt $t0, $t2, $t1
+    move $t0, $t0
+    beq $t0, $zero, L3
     # print string (literal/global): str_1
     la $a0, str_1
     li $v0, 4
@@ -103,15 +122,16 @@ L1:
     la $a0, nl
     li $v0, 4
     syscall
-L2:
-    la $t2, g_x
-    lw $t2, 0($t2)
-    move $t2, $t2
-    li $t1, 3
-    xor $t0, $t2, $t1
-    sltu $t0, $zero, $t0
+L3:
+    la $t0, g_a
+    lw $t0, 0($t0)
+    la $t1, g_b
+    lw $t1, 0($t1)
     move $t0, $t0
-    beq $t0, $zero, L3
+    move $t1, $t1
+    sge $t2, $t0, $t1
+    move $t2, $t2
+    beq $t2, $zero, L5
     # print string (literal/global): str_2
     la $a0, str_2
     li $v0, 4
@@ -119,8 +139,16 @@ L2:
     la $a0, nl
     li $v0, 4
     syscall
-    j L4
-L3:
+L5:
+    la $t2, g_a
+    lw $t2, 0($t2)
+    la $t1, g_b
+    lw $t1, 0($t1)
+    move $t2, $t2
+    move $t1, $t1
+    sle $t0, $t2, $t1
+    move $t0, $t0
+    beq $t0, $zero, L7
     # print string (literal/global): str_3
     la $a0, str_3
     li $v0, 4
@@ -128,6 +156,40 @@ L3:
     la $a0, nl
     li $v0, 4
     syscall
-L4:
+L7:
+    la $t0, g_c
+    lw $t0, 0($t0)
+    la $t1, g_b
+    lw $t1, 0($t1)
+    move $t0, $t0
+    move $t1, $t1
+    sge $t2, $t0, $t1
+    move $t2, $t2
+    beq $t2, $zero, L9
+    # print string (literal/global): str_4
+    la $a0, str_4
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+L9:
+    la $t2, g_c
+    lw $t2, 0($t2)
+    la $t1, g_b
+    lw $t1, 0($t1)
+    move $t2, $t2
+    move $t1, $t1
+    sle $t0, $t2, $t1
+    move $t0, $t0
+    beq $t0, $zero, L11
+    # print string (literal/global): str_5
+    la $a0, str_5
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+L11:
     li $v0, 10
     syscall

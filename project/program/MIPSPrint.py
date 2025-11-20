@@ -159,20 +159,21 @@ class MIPSPrint:
                 return self._print_global_array_1d(name, data)
             elif kind == "2D":
                 return self._print_global_array_2d(name, data)
-            # fallback raro: solo imprimir [array]
+            # fallback raro: solo imprimir []
             self.cg.emit("    # array global sin meta conocida")
             self._print_char('[')
             self._print_char(']')
             self._newline()
             return
 
-        # Si no es array, usamos el tipo de la tabla de símbolos
+        # No es array → mirar símbolo global
         sym = self.cg.symtab.global_scope.symbols[name]
         t = sym.type.name
+        label = getattr(sym, "mips_label", name)   # <<--- AQUÍ EL CAMBIO
 
-        # STRING GLOBAL: greeting: .word str_0
+        # STRING GLOBAL: greeting: .word str_k
         if t == "string":
-            self.cg.emit(f"    la $t0, {name}")
+            self.cg.emit(f"    la $t0, {label}")
             self.cg.emit("    lw $a0, 0($t0)")
             self.cg.emit("    li $v0, 4")
             self.cg.emit("    syscall")
@@ -181,7 +182,7 @@ class MIPSPrint:
 
         # INT GLOBAL
         if t == "int":
-            self.cg.emit(f"    la $t0, {name}")
+            self.cg.emit(f"    la $t0, {label}")
             self.cg.emit("    lw $a0, 0($t0)")
             self.cg.emit("    li $v0, 1")
             self.cg.emit("    syscall")
@@ -190,7 +191,7 @@ class MIPSPrint:
 
         # FLOAT GLOBAL
         if t == "float":
-            self.cg.emit(f"    la $t0, {name}")
+            self.cg.emit(f"    la $t0, {label}")
             self.cg.emit("    l.s $f12, 0($t0)")
             self.cg.emit("    li $v0, 2")
             self.cg.emit("    syscall")
@@ -199,7 +200,7 @@ class MIPSPrint:
                 
         # BOOLEAN GLOBAL
         if t == "bool":
-            self.cg.emit(f"    la $t0, {name}")
+            self.cg.emit(f"    la $t0, {label}")
             self.cg.emit("    lw $a0, 0($t0)")
             self.cg.emit("    li $v0, 1")
             self.cg.emit("    syscall")
@@ -207,6 +208,8 @@ class MIPSPrint:
             return
 
         raise Exception(f"print_global_var: tipo no soportado {t} para {name}")
+
+
 
     # ============================================================
     # PRINT INT DESDE TEMPORAL

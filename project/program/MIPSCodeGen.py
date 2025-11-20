@@ -347,50 +347,71 @@ class MIPSCodeGen:
 
 
     # ==========================================================
-    # LOAD genérico
-    # ==========================================================
+    # LOAD 
+    # ======================s===================================
     def _load(self, src, dst_reg):
+        """
+        Carga src en dst_reg.
+        src puede ser:
+        - un literal numérico
+        - un literal string
+        - un temporal con int, float, ptr
+        - un acceso FP[offset]
+        - una variable global g_xxx
+        """
+
+        # 1) LITERALES NUMÉRICOS
         if isinstance(src, int) or (isinstance(src, str) and src.isdigit()):
             self.emit(f"    li {dst_reg}, {src}")
             return
 
+        # 2) STRING LITERAL (temp_string)
         if src in self.temp_string:
             label = self.temp_string[src]
             self.emit(f"    la {dst_reg}, {label}")
             return
 
+        # 3) PUNTERO DINÁMICO (ptr_table)
         if src in self.ptr_table:
             reg_ptr = self.ptr_table[src]
             self.emit(f"    move {dst_reg}, {reg_ptr}")
             return
 
+        # 4) CONSTANTE ENTERA TEMPORAL
         if src in self.temp_int:
             val = self.temp_int[src]
             self.emit(f"    li {dst_reg}, {val}")
             return
 
-        if src in self.temp_float:
+        # 5) CONSTANTE FLOAT TEMPORAL
+        if src in self.temp_float and self.temp_float[src] is not None:
             val = self.temp_float[src]
             self.emit(f"    li.s {dst_reg}, {val}")
+            self.temp_float[src] = None
             return
 
+        # 6) FRAME POINTER (FP[offset])
         if isinstance(src, str) and src.startswith("FP["):
             offset = int(src[3:-1])
             self.emit(f"    lw {dst_reg}, {offset}($fp)")
             return
 
+        # 7) VARIABLE GLOBAL SEGURA g_xxx
         if isinstance(src, str) and src in self.symtab.global_scope.symbols:
-            self.emit(f"    la {dst_reg}, {src}")
-            self.emit(f"    lw {dst_reg}, 0({dst_reg})")
+            sym = self.symtab.global_scope.symbols[src]
+            safe = getattr(sym, "mips_label", src)
+            self.emit(f"    la $t9, {safe}")
+            self.emit(f"    lw {dst_reg}, 0($t9)")
             return
 
-        try:
-            r = self.tm.get_reg(src)
-            self.emit(f"    move {dst_reg}, {r}")
+        # 8) TEMPORAL SIN METADATA (asignarle registro)
+        if isinstance(src, str):
+            reg_src = self.tm.get_reg(src)
+            self.emit(f"    move {dst_reg}, {reg_src}")
             return
-        except:
-            raise Exception(f"_load: tipo no soportado: {src}")
-        
+
+        # SI NADA APLICA → ERROR
+        raise Exception(f"_load: tipo no soportado para src={src} ({type(src)})")
 
     def _load_from_addr(self, addr, dst_reg):
         # addr viene en formato FP[offset] o nombre de variable global

@@ -29,7 +29,7 @@ class MIPSStrings:
             cg.emit(f"    move {dst_reg}, {reg_ptr}")
             return
 
-        # 3) variable global de tipo string: nombre: .word str_k
+        # 3) variable global de tipo string: g_name: .word str_k
         if (
             isinstance(temp_name, str)
             and hasattr(cg.symtab, "global_scope")
@@ -37,9 +37,12 @@ class MIPSStrings:
         ):
             sym = cg.symtab.global_scope.symbols[temp_name]
             if getattr(sym.type, "name", None) == "string":
-                cg.emit(f"    la {dst_reg}, {temp_name}")
+                label = getattr(sym, "mips_label", temp_name)
+                cg.emit(f"    la {dst_reg}, {label}")
                 cg.emit(f"    lw {dst_reg}, 0({dst_reg})")
                 return
+
+
 
         raise Exception(f"[MIPSStrings] '{temp_name}' no es string literal, dinámico ni global")
 
