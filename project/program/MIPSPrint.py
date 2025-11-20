@@ -131,6 +131,16 @@ class MIPSPrint:
         self._newline()
 
     # ============================================================
+    # PRINT FLOAT
+    # ============================================================
+    def print_float(self, value):
+        self.cg.emit(f"    # print float literal: {value}")
+        self.cg.emit(f"    li.s $f12, {value}")
+        self.cg.emit("    li $v0, 2")
+        self.cg.emit("    syscall")
+        self._newline()
+
+    # ============================================================
     # PRINT BOOLEAN
     # ============================================================
     def print_bool(self, value):
@@ -178,6 +188,15 @@ class MIPSPrint:
             self._newline()
             return
 
+        # FLOAT GLOBAL
+        if t == "float":
+            self.cg.emit(f"    la $t0, {name}")
+            self.cg.emit("    l.s $f12, 0($t0)")
+            self.cg.emit("    li $v0, 2")
+            self.cg.emit("    syscall")
+            self._newline()
+            return
+                
         # BOOLEAN GLOBAL
         if t == "bool":
             self.cg.emit(f"    la $t0, {name}")

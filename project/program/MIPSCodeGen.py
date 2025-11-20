@@ -23,6 +23,8 @@ class MIPSCodeGen:
         # info de temporales
         self.temp_string = {}   # tX -> label de string literal
         self.temp_int = {}      # tX -> entero constante (cuando se conozca)
+        self.temp_float = {}    # tX -> float constante (cuando se conozca)
+        self.temp_bool = {}     # tX -> booleano constante (cuando se conozca)
         self.temp_ptr = {}      # tX -> registro con puntero (strings/arrays)
         self.ptr_table = {}     # tX -> registro (principal para punteros)
 
@@ -204,6 +206,12 @@ class MIPSCodeGen:
                     self.temp_string.pop(r, None)
                     self.temp_int.pop(r, None)
 
+                elif isinstance(a, float):
+                    self.temp_float[r] = a  # constante verdadera
+                    self.temp_int.pop(r, None)
+                    self.temp_string.pop(r, None)
+                    self.temp_ptr.pop(r, None)
+
                 else:
                     self.temp_string.pop(r, None)
                     self.temp_int.pop(r, None)
@@ -232,12 +240,33 @@ class MIPSCodeGen:
                 self._store_to_addr(a, r)
 
             elif op == "store_global":
-                reg = self.tm.get_reg(a)
-                self._load(a, reg)
-                self.emit(f"    la $t9, {r}")   # r = nombre de global
-                self.emit(f"    sw {reg}, 0($t9)")
+                sym = self.symtab.global_scope.resolve(r)
+                if sym.type.name == "float":
+                    # t_val puede ser float o int → manejamos ambos:
+                    if a in self.temp_float:
+                        f = self.tm.get_freg(a)
+                        # cargar literal si hace falta:
+                        if self.temp_float[a] is not None:
+                            self.emit(f"    li.s {f}, {self.temp_float[a]}")
+                            self.temp_float[a] = None
+                        self.emit(f"    la $t9, {r}")
+                        self.emit(f"    s.s {f}, 0($t9)")
+                    else:
+                        # int → float
+                        ri = self.tm.get_reg(a)
+                        rf = self.tm.get_freg(a)
+                        self._load(a, ri)
+                        self.emit(f"    mtc1 {ri}, {rf}")
+                        self.emit(f"    cvt.s.w {rf}, {rf}")
+                        self.emit(f"    la $t9, {r}")
+                        self.emit(f"    s.s {rf}, 0($t9)")
+                else:
+                    reg = self.tm.get_reg(a)
+                    self._load(a, reg)
+                    self.emit(f"    la $t9, {r}")
+                    self.emit(f"    sw {reg}, 0($t9)")
 
-            elif op in ["+", "-", "*", "/", "%"]:
+            elif op in ["-", "*", "/", "%"]:
                 self.op_mod.arithmetic(op, a, b, r)
 
             elif op in ["<", "<=", ">", ">=", "==", "!="]:
@@ -248,6 +277,13 @@ class MIPSCodeGen:
 
             elif op == "not":
                 self.op_mod.unary_not(a, r)
+
+            elif op == "+":
+                if self._is_string(a) or self._is_string(b):
+                    self._concat_strings(a, b, r)
+                else:
+                    self.op_mod.arithmetic("+", a, b, r)
+
 
             # # ---------- + (ints / strings) ----------
             # elif op == "+":
@@ -393,6 +429,11 @@ class MIPSCodeGen:
             self.emit(f"    li {dst_reg}, {val}")
             return
 
+        if src in self.temp_float:
+            val = self.temp_float[src]
+            self.emit(f"    li.s {dst_reg}, {val}")
+            return
+
         if isinstance(src, str) and src.startswith("FP["):
             offset = int(src[3:-1])
             self.emit(f"    lw {dst_reg}, {offset}($fp)")
@@ -432,6 +473,58 @@ class MIPSCodeGen:
             # global
             self.emit(f"    la $t9, {addr}")
             self.emit(f"    sw {reg_val}, 0($t9)")
+
+    def _is_string(self, t):
+        return (
+            t in self.temp_string or
+            t in self.temp_ptr or
+            (isinstance(t, str) and t.startswith('"'))
+        )
+
+    def _concat_strings(self, a, b, r):
+
+        a_is_str = self._is_string(a)
+        b_is_str = self._is_string(b)
+
+        # caso 1: string + string (literal o dinámico)
+        if a_is_str and b_is_str:
+            self.strings_mod.concat_strings(a, b, r)
+            return
+
+        # caso 2: string + int
+        if a_is_str and not b_is_str:
+            reg_b = self.tm.get_reg(b)
+            self._load(b, reg_b)
+
+            self.emit(f"    move $a0, {reg_b}")
+            self.emit("    jal cs_int_to_string")
+            reg_tmp = self.tm.get_reg(r)
+            self.emit(f"    move {reg_tmp}, $v0")
+
+            self.temp_ptr[r] = reg_tmp
+            self.ptr_table[r] = reg_tmp
+
+            self.strings_mod.concat_strings(a, r, r)
+            return
+
+        # caso 3: int + string
+        if b_is_str and not a_is_str:
+            reg_a = self.tm.get_reg(a)
+            self._load(a, reg_a)
+
+            self.emit(f"    move $a0, {reg_a}")
+            self.emit("    jal cs_int_to_string")
+            reg_tmp = self.tm.get_reg(r)
+            self.emit(f"    move {reg_tmp}, $v0")
+
+            self.temp_ptr[r] = reg_tmp
+            self.ptr_table[r] = reg_tmp
+
+            self.strings_mod.concat_strings(r, b, r)
+            return
+
+        # caso inesperado
+        raise Exception(f"Concatenación no soportada entre {a} y {b}")
 
     # ==========================================================
     # API PÚBLICA

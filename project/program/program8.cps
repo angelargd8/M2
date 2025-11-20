@@ -24,3 +24,11 @@ function MULTIPLICACION(x: integer): integer {
 let multiplicar: integer = (MULTIPLICACION(5));
 print("5 * 2 = " );
 print(multiplicar);
+
+print("==DIVISION==");
+function DIVISION(x: float): float {
+  return x / 2.0;
+}
+let dividir: float = (DIVISION(5));
+print("5 / 2 = " );
+print(dividir);

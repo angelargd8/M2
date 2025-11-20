@@ -7,15 +7,21 @@ class TempManager:
         self.pool = TempPool()
         self.refcount={} # t -> numero de referencias pendientes
         self.label_count = 0 
+        self.temp_to_freg = {}
 
         # Registros disponibles
         self.free_regs = [
             "$t0", "$t1", "$t2", "$t3", "$t4",
-            "$t5", "$t6", "$t7", "$t8", "$t9", 
-            "$t10", "$t11", "$t12", "$t13", "$t14",
-            "$t15", "$t16", "$t17", "$t18", "$t19"
+            "$t5", "$t6", "$t7", "$t8", "$t9",
+            "$s0", "$s1", "$s2", "$s3",
         ]
 
+        self.free_fregs = [
+            "$f0", "$f1", "$f2", "$f3", "$f4", "$f5",
+            "$f6", "$f7", "$f8", "$f9", "$f10", "$f11",
+            "$f12", "$f13", "$f14", "$f15",
+        ]
+        
         # Mapa: temporal -> registro asignado
         self.temp_to_reg = {}
 
@@ -64,8 +70,19 @@ class TempManager:
         reg = self.free_regs.pop(0)
         self.temp_to_reg[temp] = reg
         return reg
+    
+    
+    def get_freg(self, temp):
+        if temp in self.temp_to_freg:
+            return self.temp_to_freg[temp]
 
-        
+        if not self.free_fregs:
+            raise Exception("TempManager: no hay registros flotantes disponibles")
+
+        reg = self.free_fregs.pop(0)
+        self.temp_to_freg[temp] = reg
+        return reg
+            
     def newLabel(self):
         #Genera una etiqueta única (L1, L2, L3, ...)
         self.label_count += 1
