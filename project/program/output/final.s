@@ -3,18 +3,8 @@
 # ===== Compiscript Program =====
 
 .data
-PI: .word 314
-greeting: .word str_3
-flag: .word 0
-numbers: .word 1, 2, 3, 4, 5
-matrix_row_0: .word 1, 2
-matrix_row_1: .word 3, 4
-matrix: .word matrix_row_0, matrix_row_1
-str_0: .asciiz "Hello world"
-str_1: .asciiz "Hello"
-str_2: .asciiz "Compiscript concat"
-str_3: .asciiz "Hello, Compiscript!"
-str_4: .asciiz "test"
+addFive: .word 0
+str_0: .asciiz "5 + 1 = "
 nl: .asciiz "\n"
 str_lbr: .asciiz "["
 str_rbr: .asciiz "]"
@@ -78,11 +68,43 @@ cs_its_done:
     addi $sp, $sp, 12
     jr $ra
 
+makeAdder:
+    addi $sp, $sp, -8
+    sw $fp, 4($sp)
+    sw $ra, 0($sp)
+    move $fp, $sp
+    lw $t0, 8($fp)
+    move $t0, $t0
+    li $t1, 1
+    add $t2, $t0, $t1
+    move $t2, $t2
+    move $v0, $t2
+    # ---- EPILOG ----
+    move $sp, $fp
+    lw $ra, 0($sp)
+    lw $fp, 4($sp)
+    addi $sp, $sp, 8
+    jr $ra
+    # ---- EPILOG ----
+    move $sp, $fp
+    lw $ra, 0($sp)
+    lw $fp, 4($sp)
+    addi $sp, $sp, 8
+    jr $ra
 main:
     addi $sp, $sp, -8
     sw $fp, 4($sp)
     sw $ra, 0($sp)
     move $fp, $sp
+    li $t2, 5
+    addi $sp, $sp, -4
+    sw $t2, 0($sp)
+    jal makeAdder
+    addi $sp, $sp, 4
+    move $t2, $v0
+    move $t2, $t2
+    la $t9, addFive
+    sw $t2, 0($t9)
     # print string (literal/global): str_0
     la $a0, str_0
     li $v0, 4
@@ -90,242 +112,9 @@ main:
     la $a0, nl
     li $v0, 4
     syscall
-    # print int from temp t1 = 1
-    li $a0, 1
-    li $v0, 1
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    la $t0, str_1
-    la $t1, str_2
-    li $a0, 512
-    li $v0, 9
-    syscall
-    move $t2, $v0
-    move $t4, $t2
-    move $t5, $t0
-    move $t6, $t1
-concat_copy_a_t3:
-    lb $t0, 0($t5)
-    sb $t0, 0($t4)
-    beq $t0, $zero, concat_copy_b_t3
-    addi $t5, $t5, 1
-    addi $t4, $t4, 1
-    j concat_copy_a_t3
-concat_copy_b_t3:
-    lb $t0, 0($t6)
-    sb $t0, 0($t4)
-    beq $t0, $zero, concat_done_t3
-    addi $t6, $t6, 1
-    addi $t4, $t4, 1
-    j concat_copy_b_t3
-concat_done_t3:
-    # print dynamic string in t3
-    move $a0, $t2
-    li $v0, 4
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    li $t2, 314
-    la $t9, PI
-    sw $t2, 0($t9)
-    la $t2, str_3
-    la $t9, greeting
-    sw $t2, 0($t9)
-    # alloc_array size=5
-    li $a0, 24
-    li $v0, 9
-    syscall
-    move $t2, $v0
-    li $t9, 5
-    sw $t9, 0($t2)
-    li $t8, 1
-    # setidx t3[0] = t2
-    sw $t8, 4($t2)
-    li $t8, 2
-    # setidx t3[1] = t2
-    sw $t8, 8($t2)
-    li $t8, 3
-    # setidx t3[2] = t2
-    sw $t8, 12($t2)
-    li $t8, 4
-    # setidx t3[3] = t2
-    sw $t8, 16($t2)
-    li $t8, 5
-    # setidx t3[4] = t2
-    sw $t8, 20($t2)
-    la $t2, str_3
-    la $t9, numbers
-    sw $t2, 0($t9)
-    # alloc_array size=2
-    li $a0, 12
-    li $v0, 9
-    syscall
-    move $t2, $v0
-    li $t9, 2
-    sw $t9, 0($t2)
-    # alloc_array size=2
-    li $a0, 12
-    li $v0, 9
-    syscall
-    move $t1, $v0
-    li $t9, 2
-    sw $t9, 0($t1)
-    li $t8, 1
-    # setidx t2[0] = t1
-    sw $t8, 4($t1)
-    li $t8, 2
-    # setidx t2[1] = t1
-    sw $t8, 8($t1)
-    li $t8, 5
-    # setidx t3[0] = t2
-    sw $t8, 4($t2)
-    # alloc_array size=2
-    li $a0, 12
-    li $v0, 9
-    syscall
-    move $t1, $v0
-    li $t9, 2
-    sw $t9, 0($t1)
-    li $t8, 3
-    # setidx t2[0] = t1
-    sw $t8, 4($t1)
-    li $t8, 4
-    # setidx t2[1] = t1
-    sw $t8, 8($t1)
-    li $t8, 5
-    # setidx t3[1] = t2
-    sw $t8, 8($t2)
-    la $t2, str_3
-    la $t9, matrix
-    sw $t2, 0($t9)
-    la $t0, PI
+    la $t0, addFive
     lw $a0, 0($t0)
     li $v0, 1
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    la $t0, greeting
-    lw $a0, 0($t0)
-    li $v0, 4
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    la $t0, flag
-    lw $a0, 0($t0)
-    li $v0, 1
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    # print 1D global array numbers
-    li $a0, 91
-    li $v0, 11
-    syscall
-    li $a0, 1
-    li $v0, 1
-    syscall
-    li $a0, 44
-    li $v0, 11
-    syscall
-    li $a0, 32
-    li $v0, 11
-    syscall
-    li $a0, 2
-    li $v0, 1
-    syscall
-    li $a0, 44
-    li $v0, 11
-    syscall
-    li $a0, 32
-    li $v0, 11
-    syscall
-    li $a0, 3
-    li $v0, 1
-    syscall
-    li $a0, 44
-    li $v0, 11
-    syscall
-    li $a0, 32
-    li $v0, 11
-    syscall
-    li $a0, 4
-    li $v0, 1
-    syscall
-    li $a0, 44
-    li $v0, 11
-    syscall
-    li $a0, 32
-    li $v0, 11
-    syscall
-    li $a0, 5
-    li $v0, 1
-    syscall
-    li $a0, 93
-    li $v0, 11
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    # print 2D global array matrix
-    li $a0, 91
-    li $v0, 11
-    syscall
-    li $a0, 91
-    li $v0, 11
-    syscall
-    li $a0, 1
-    li $v0, 1
-    syscall
-    li $a0, 44
-    li $v0, 11
-    syscall
-    li $a0, 32
-    li $v0, 11
-    syscall
-    li $a0, 2
-    li $v0, 1
-    syscall
-    li $a0, 93
-    li $v0, 11
-    syscall
-    li $a0, 44
-    li $v0, 11
-    syscall
-    li $a0, 32
-    li $v0, 11
-    syscall
-    li $a0, 91
-    li $v0, 11
-    syscall
-    li $a0, 3
-    li $v0, 1
-    syscall
-    li $a0, 44
-    li $v0, 11
-    syscall
-    li $a0, 32
-    li $v0, 11
-    syscall
-    li $a0, 4
-    li $v0, 1
-    syscall
-    li $a0, 93
-    li $v0, 11
-    syscall
-    li $a0, 93
-    li $v0, 11
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    # print string (literal/global): str_4
-    la $a0, str_4
-    li $v0, 4
     syscall
     la $a0, nl
     li $v0, 4

@@ -32,11 +32,12 @@ class MIPSCodeGen:
         self.func_labels = set()
 
         # módulos auxiliares
+        self.tm = TempManager()
         self.print_mod = MIPSPrint(self)
         self.strings_mod = MIPSStrings(self)
         self.vars_mod = MIPSVar(self)
         self.arrays_mod = MIPSArrays(self)
-        self.tm = TempManager()
+        
         self.fun_mod = MIPSFun(self)
         self.op_mod = MIPSOp(self)
 
@@ -279,86 +280,14 @@ class MIPSCodeGen:
                 self.op_mod.unary_not(a, r)
 
             elif op == "+":
+
+                # Si alguno de los operandos es string (literal, dinámico o var string),
+                # usamos la lógica de concatenación.
                 if self._is_string(a) or self._is_string(b):
                     self._concat_strings(a, b, r)
                 else:
+                    # Caso numérico puro: delegamos a MIPSOp.arithmetic
                     self.op_mod.arithmetic("+", a, b, r)
-
-
-            # # ---------- + (ints / strings) ----------
-            # elif op == "+":
-            #     is_a_str = a in self.temp_string or a in self.temp_ptr
-            #     is_b_str = b in self.temp_string or b in self.temp_ptr
-            #     a_is_literal = a in self.temp_string
-            #     b_is_literal = b in self.temp_string
-
-            #     # string + string
-            #     if is_a_str and is_b_str:
-            #         self.strings_mod.concat_strings(a, b, r)
-
-            #     # int + int
-            #     elif (not is_a_str) and (not is_b_str):
-            #         reg_a = self.tm.get_reg(a)
-            #         reg_b = self.tm.get_reg(b)
-            #         reg_r = self.tm.get_reg(r)
-            #         self._load(a, reg_a)
-            #         self._load(b, reg_b)
-            #         self.emit(f"    add {reg_r}, {reg_a}, {reg_b}")
-            #         self.temp_int[r] = 0
-            #         self.temp_ptr.pop(r, None)
-            #         self.temp_string.pop(r, None)
-            #         self.ptr_table.pop(r, None)
-
-            #     # string literal + int
-            #     elif a_is_literal and (not is_b_str):
-            #         reg_b = self.tm.get_reg(b)
-            #         self._load(b, reg_b)
-            #         self.emit(f"    move $a0, {reg_b}")
-            #         self.emit("    jal cs_int_to_string")
-            #         reg_tmp = self.tm.get_reg(r)
-            #         self.emit(f"    move {reg_tmp}, $v0")
-            #         self.temp_ptr[r] = reg_tmp
-            #         self.ptr_table[r] = reg_tmp
-            #         self.strings_mod.concat_strings(a, r, r)
-
-            #     # int + string literal
-            #     elif b_is_literal and (not is_a_str):
-            #         reg_a = self.tm.get_reg(a)
-            #         self._load(a, reg_a)
-            #         self.emit(f"    move $a0, {reg_a}")
-            #         self.emit("    jal cs_int_to_string")
-            #         reg_tmp = self.tm.get_reg(r)
-            #         self.emit(f"    move {reg_tmp}, $v0")
-            #         self.temp_ptr[r] = reg_tmp
-            #         self.ptr_table[r] = reg_tmp
-            #         self.strings_mod.concat_strings(r, b, r)
-
-            #     # string dinámico + int
-            #     elif (a in self.temp_ptr) and (not is_b_str):
-            #         reg_b = self.tm.get_reg(b)
-            #         self._load(b, reg_b)
-            #         self.emit(f"    move $a0, {reg_b}")
-            #         self.emit("    jal cs_int_to_string")
-            #         reg_tmp = self.tm.get_reg(r)
-            #         self.emit(f"    move {reg_tmp}, $v0")
-            #         self.temp_ptr[r] = reg_tmp
-            #         self.ptr_table[r] = reg_tmp
-            #         self.strings_mod.concat_strings(a, r, r)
-
-            #     # int + string dinámico
-            #     elif (b in self.temp_ptr) and (not is_a_str):
-            #         reg_a = self.tm.get_reg(a)
-            #         self._load(a, reg_a)
-            #         self.emit(f"    move $a0, {reg_a}")
-            #         self.emit("    jal cs_int_to_string")
-            #         reg_tmp = self.tm.get_reg(r)
-            #         self.emit(f"    move {reg_tmp}, $v0")
-            #         self.temp_ptr[r] = reg_tmp
-            #         self.ptr_table[r] = reg_tmp
-            #         self.strings_mod.concat_strings(r, b, r)
-
-            #     else:
-            #         raise Exception(f"Operador + no soportado entre {a} y {b}")
 
             # ---------- ARRAYS ----------
             elif op == "alloc_array":
@@ -378,9 +307,13 @@ class MIPSCodeGen:
                 if sym.type.name in ("int", "bool"):
                     self.emit(f"    la {reg}, {a}")
                     self.emit(f"    lw {reg}, 0({reg})")
-                    self.temp_int[r] = 0
+
+                    # NO asumir valor en tiempo de compilación
+                    self.temp_int.pop(r, None)
+                    self.temp_string.pop(r, None)
                     self.temp_ptr.pop(r, None)
                     self.ptr_table.pop(r, None)
+
 
                 elif sym.type.name in ("string", "array"):
                     self.emit(f"    la {reg}, {a}")

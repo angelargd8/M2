@@ -7,10 +7,12 @@
 
 class MIPSStrings:
     def __init__(self, cg):
-        self.cg = cg  # referencia al MIPSCodeGen
+        self.cg = cg          # referencia al MIPSCodeGen
+        self.tm = cg.tm       # TempManager
 
     # -------------------------------------------------------------
     # Cargar puntero del string (literal, dinámico o global)
+    # en el registro dst_reg (que ya viene de TempManager)
     # -------------------------------------------------------------
     def _load_str_ptr(self, temp_name, dst_reg):
         cg = self.cg
@@ -27,85 +29,81 @@ class MIPSStrings:
             cg.emit(f"    move {dst_reg}, {reg_ptr}")
             return
 
-        # 3) variable global de tipo string: addFive: .word str_k
+        # 3) variable global de tipo string: nombre: .word str_k
         if (
             isinstance(temp_name, str)
             and hasattr(cg.symtab, "global_scope")
             and temp_name in cg.symtab.global_scope.symbols
         ):
             sym = cg.symtab.global_scope.symbols[temp_name]
-            # Asumimos que el type tiene atributo name == "string"
             if getattr(sym.type, "name", None) == "string":
-                # dst_reg = *addFive (cargar puntero al literal)
                 cg.emit(f"    la {dst_reg}, {temp_name}")
                 cg.emit(f"    lw {dst_reg}, 0({dst_reg})")
                 return
 
-        # Si llega aquí, no sabemos qué es
         raise Exception(f"[MIPSStrings] '{temp_name}' no es string literal, dinámico ni global")
 
     # -------------------------------------------------------------
-    # Concatena t_left + t_right → t_dest
-    # t_left y t_right deben representar strings (literal, global o heap)
+    # Concatena a + b → r
+    # a y b deben representar strings (literal, global o heap)
     # -------------------------------------------------------------
     def concat_strings(self, a, b, r):
-        # Obtener puntero de A
-        reg_a = self.cg.tm.get_reg(a)
-        if a in self.cg.temp_string:
-            label = self.cg.temp_string[a]
-            self.cg.emit(f"    la {reg_a}, {label}")
-        elif a in self.cg.ptr_table:
-            self.cg.emit(f"    move {reg_a}, {self.cg.ptr_table[a]}")
-        else:
-            raise Exception(f"concat: A no es string: {a}")
+        cg = self.cg
+        tm = self.tm
 
-        # Obtener puntero de B
-        reg_b = self.cg.tm.get_reg(b)
-        if b in self.cg.temp_string:
-            label = self.cg.temp_string[b]
-            self.cg.emit(f"    la {reg_b}, {label}")
-        elif b in self.cg.ptr_table:
-            self.cg.emit(f"    move {reg_b}, {self.cg.ptr_table[b]}")
-        else:
-            raise Exception(f"concat: B no es string: {b}")
+        # Pedimos registros a TempManager con nombres internos únicos
+        reg_a   = tm.get_reg(f"{r}_A")      # puntero a A
+        reg_b   = tm.get_reg(f"{r}_B")      # puntero a B
+        reg_base = tm.get_reg(f"{r}_BASE")  # base del nuevo buffer
+        reg_cur  = tm.get_reg(f"{r}_CUR")   # cursor dentro del buffer
+        reg_chr  = tm.get_reg(f"{r}_CHR")   # byte temporal
 
-        # Reservar buffer
-        reg_r = self.cg.tm.get_reg(r)
-        self.cg.emit("    li $a0, 512")
-        self.cg.emit("    li $v0, 9")
-        self.cg.emit("    syscall")
-        self.cg.emit(f"    move {reg_r}, $v0")
+        # Cargar punteros de A y B
+        self._load_str_ptr(a, reg_a)
+        self._load_str_ptr(b, reg_b)
 
-        # Punteros de recorrido
-        self.cg.emit(f"    move $t4, {reg_r}")  # cursor destino
-        self.cg.emit(f"    move $t5, {reg_a}")  # cursor en A
-        self.cg.emit(f"    move $t6, {reg_b}")  # cursor en B
+        # Reservar buffer (512 bytes, suficiente para tu ejemplo)
+        cg.emit("    li $a0, 512")
+        cg.emit("    li $v0, 9")
+        cg.emit("    syscall")
+        cg.emit(f"    move {reg_base}, $v0")
+        cg.emit(f"    move {reg_cur}, {reg_base}")
+
+        # Etiquetas únicas por temporal destino r
+        label_copy_a = f"concat_copy_a_{r}"
+        label_copy_b = f"concat_copy_b_{r}"
+        label_done   = f"concat_done_{r}"
 
         # Copiar A
-        self.cg.emit(f"concat_copy_a_{r}:")
-        self.cg.emit("    lb $t0, 0($t5)")
-        self.cg.emit("    sb $t0, 0($t4)")
-        self.cg.emit(f"    beq $t0, $zero, concat_copy_b_{r}")
-        self.cg.emit("    addi $t5, $t5, 1")
-        self.cg.emit("    addi $t4, $t4, 1")
-        self.cg.emit(f"    j concat_copy_a_{r}")
+        cg.emit(f"{label_copy_a}:")
+        cg.emit(f"    lb {reg_chr}, 0({reg_a})")
+        cg.emit(f"    sb {reg_chr}, 0({reg_cur})")
+        cg.emit(f"    beq {reg_chr}, $zero, {label_copy_b}")
+        cg.emit(f"    addi {reg_a}, {reg_a}, 1")
+        cg.emit(f"    addi {reg_cur}, {reg_cur}, 1")
+        cg.emit(f"    j {label_copy_a}")
 
         # Copiar B
-        self.cg.emit(f"concat_copy_b_{r}:")
-        self.cg.emit("    lb $t0, 0($t6)")
-        self.cg.emit("    sb $t0, 0($t4)")
-        self.cg.emit(f"    beq $t0, $zero, concat_done_{r}")
-        self.cg.emit("    addi $t6, $t6, 1")
-        self.cg.emit("    addi $t4, $t4, 1")
-        self.cg.emit(f"    j concat_copy_b_{r}")
+        cg.emit(f"{label_copy_b}:")
+        cg.emit(f"    lb {reg_chr}, 0({reg_b})")
+        cg.emit(f"    sb {reg_chr}, 0({reg_cur})")
+        cg.emit(f"    beq {reg_chr}, $zero, {label_done}")
+        cg.emit(f"    addi {reg_b}, {reg_b}, 1")
+        cg.emit(f"    addi {reg_cur}, {reg_cur}, 1")
+        cg.emit(f"    j {label_copy_b}")
 
-        self.cg.emit(f"concat_done_{r}:")
+        cg.emit(f"{label_done}:")
+        # terminador nulo
+        cg.emit(f"    sb $zero, 0({reg_cur})")
 
-        # Registrar puntero dinámico
-        self.cg.ptr_table[r] = reg_r
-        self.cg.temp_ptr[r] = reg_r
-        if r in self.cg.temp_string:
-            del self.cg.temp_string[r]
+        # Registrar puntero dinámico RESULTADO en r
+        reg_r = tm.get_reg(r)                     # registro "oficial" para r
+        cg.emit(f"    move {reg_r}, {reg_base}")  # r apunta al inicio del buffer
 
-        
+        cg.ptr_table[r] = reg_r
+        cg.temp_ptr[r] = reg_r
 
+        # limpiar metadata numérica / literal
+        cg.temp_string.pop(r, None)
+        cg.temp_int.pop(r, None)
+        cg.temp_float.pop(r, None)

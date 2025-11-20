@@ -223,22 +223,27 @@ class MIPSPrint:
     # DISPATCH PRINCIPAL DE PRINT
     # ============================================================
     def handle_print(self, arg):
+        cg = self.cg
 
-        # VARIABLES GLOBALES
-        if arg in self.cg.symtab.global_scope.symbols:
-            return self.print_global_var(arg)
+        # 1) STRING DINÁMICO (resultado de concatenación, int->string, etc.)
+        if arg in cg.temp_ptr:
+            self.print_dynamic_string(arg)
+            return
 
-        # STRING LITERAL (temporal que referencia str_X)
-        label = self.cg.temp_string.get(arg)
-        if label and label.startswith("str_"):
-            return self.print_string(label)
+        # 2) STRING LITERAL (temporal que referencia str_X)
+        if arg in cg.temp_string:
+            label = cg.temp_string[arg]
+            self.print_string(label)
+            return
 
-        # STRING DINÁMICO (puntero)
-        if arg in self.cg.temp_ptr:
-            return self.print_dynamic_string(arg)
+        # 3) VARIABLE GLOBAL
+        if isinstance(arg, str) and arg in cg.symtab.global_scope.symbols:
+            self.print_global_var(arg)
+            return
 
-        # ENTERO EN TEMPORAL
-        if arg in self.cg.temp_int:
-            return self.print_int_reg(arg)
+        # 4) ENTERO EN TEMPORAL (literal conocido)
+        if arg in cg.temp_int:
+            self.print_int_reg(arg)
+            return
 
         raise Exception(f"MIPSPrint: no se puede imprimir {arg}")

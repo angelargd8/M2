@@ -4,6 +4,6 @@ function makeAdder(x: integer): integer {
 }
 
 let addFive: integer = (makeAdder(5));
-print("5 + 1 = " + addFive);
-
+print("5 + 1 = " );
+print(addFive);
 

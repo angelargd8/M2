@@ -595,7 +595,48 @@ class IRGenerator:
         return t_arr
 
     def _visit_Var(self, node: Var) -> str:
-        return self._load_var(node.name)
+        name = node.name
+
+        # 1) ¿Es global?
+        if self.symtab and name in self.symtab.global_scope.symbols:
+            sym = self.symtab.global_scope.symbols[name]
+
+            # ----- STRING GLOBAL → NO usar load -----
+            if sym.type.name in ("string", "array"):
+                t = self.tm.new_temp()
+                self.emit("loadvar", name, None, t)
+                return t
+
+            # ----- INT/BOOL GLOBAL → loadvar igual funciona -----
+            t = self.tm.new_temp()
+            self.emit("loadvar", name, None, t)
+            return t
+
+        # 2) Si no es global, es local/param:
+        addr = self._addr_for_local_var(name)
+
+        # ----- STRING LOCAL/PARAM (puntero) -----
+        sym = None
+        if self.current_func:
+            # buscar en locals/params
+            if name in self.current_func.local_offsets:
+                sym = self.current_func.local_offsets[name]
+            elif name in self.current_func.param_offsets:
+                sym = self.current_func.param_offsets[name]
+
+        # No confiamos en sym.type pero sí en IR:
+        # strings SIEMPRE deben usar loadvar
+        if addr and self.symtab:
+            var_sym = self.symtab.global_scope.resolve(name)
+            if isinstance(var_sym, VariableSymbol) and var_sym.type.name == "string":
+                t = self.tm.new_temp()
+                self.emit("loadvar", name, None, t)
+                return t
+
+        # 3) INT/BOOL locales → load normal (load FP[offset])
+        t = self.tm.new_temp()
+        self.emit("load", addr, None, t)
+        return t
 
     def _visit_UnOp(self, node: UnOp) -> str:
         t_expr = self._visit(node.expr)
