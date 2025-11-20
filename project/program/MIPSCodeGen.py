@@ -154,7 +154,6 @@ class MIPSCodeGen:
         self.emit("    sb $t7, -1($t1)")
         self.emit("    addi $t1, $t1, -1")
         self.emit("cs_its_no_minus:")
-        self.emit("    addi $t1, $t1, 1")
         self.emit("    move $v0, $t1")
         self.emit("cs_its_done:")
         self.emit("    lw $s1, 0($sp)")
