@@ -5,6 +5,7 @@ import os, sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 
+from AstBuilder import AstBuilder
 import pytest
 from antlr4 import InputStream, CommonTokenStream
 from gen.CompiscriptLexer import CompiscriptLexer
@@ -22,7 +23,9 @@ def build_ir():
         tokens = CommonTokenStream(lexer)
         parser = CompiscriptParser(tokens)
         tree = parser.program()
+        ast = AstBuilder().visit(tree)
+        
         symtab = SymbolTable()
         irgen = IRGenerator(symtab)
-        return irgen.generate(tree)
+        return irgen.generate(ast)
     return _build_ir
