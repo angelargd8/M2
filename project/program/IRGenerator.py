@@ -32,6 +32,9 @@ class IRGenerator:
         # función actual (FunctionSymbol)
         self.current_func: FunctionSymbol | None = None
 
+        # pila de scopes para variables de bloque afuera de funciones (main)
+        self.block_env_stack: list[dict[str, str]] = []
+
     # ==================== utilidades ====================
 
     def emit(self, op, a=None, b=None, r=None):
@@ -53,6 +56,8 @@ class IRGenerator:
                 self._visit_FuncDecl(stmt)
 
         # 2) main para el código suelto
+        self.block_env_stack = []
+        self._push_block_env()
         self.emit("label", "main", None, None)
         for stmt in node.statements:
             if not isinstance(stmt, (FuncDecl, ClassDecl)):
@@ -63,6 +68,36 @@ class IRGenerator:
         return self.quads
 
     # ------------- helpers de direcciones -------------
+
+    # manejamos scopes de bloque para el "main" (no funciones)
+    def _push_block_env(self):
+        self.block_env_stack.append({})
+
+    def _pop_block_env(self):
+        if self.block_env_stack:
+            self.block_env_stack.pop()
+
+    def _current_block_env(self):
+        return self.block_env_stack[-1] if self.block_env_stack else None
+
+    def _lookup_block_env(self, name: str) -> str | None:
+        for env in reversed(self.block_env_stack):
+            if name in env:
+                return env[name]
+        return None
+
+    def _ensure_block_slot(self, name: str) -> str:
+        """
+        Asigna un temporal persistente a una variable de bloque (solo cuando no estamos en función).
+        """
+        slot = self._lookup_block_env(name)
+        if slot is None:
+            slot = self.tm.new_temp()
+            self.tm.pin(slot)   # no se libera automáticamente
+            env = self._current_block_env()
+            if env is not None:
+                env[name] = slot
+        return slot
 
     def _addr_for_global_var(self, name: str) -> str:
         """
@@ -143,6 +178,10 @@ class IRGenerator:
         """
         Carga el valor de una variable (global/local/param) en un temporal.
         """
+        if self.current_func is None and (not self.symtab or name not in self.symtab.global_scope.symbols):
+            slot = self._ensure_block_slot(name)
+            return slot
+
         addr = self._addr_for_var(name)
         t = self.tm.new_temp()
         self.emit("load", addr, None, t)
@@ -153,6 +192,14 @@ class IRGenerator:
         Guarda el contenido de t_value en una variable (global/local/param).
         """
         sym = self.symtab.global_scope.resolve(name)
+
+        # Si estamos fuera de una función y la variable no es global declarada,
+        # la tratamos como variable de bloque en "main" usando un temporal persistente.
+        if self.current_func is None and not (sym and isinstance(sym, VariableSymbol) and sym.storage == "global"):
+            slot = self._ensure_block_slot(name)
+            self.emit("copy", t_value, None, slot)
+            return
+
         # -------- GLOBAL --------
         if isinstance(sym, VariableSymbol) and sym.storage == "global":
             # store_global r -> name
@@ -255,8 +302,14 @@ class IRGenerator:
     # ==================== statements ====================
 
     def _visit_Block(self, node: Block):
+        pushed = False
+        if self.current_func is None:
+            self._push_block_env()
+            pushed = True
         for s in node.statements:
             self._visit(s)
+        if pushed:
+            self._pop_block_env()
 
     def _visit_Assign(self, node: Assign):
         # target puede ser Var, Member, Index
@@ -378,6 +431,11 @@ class IRGenerator:
 
         self.loop_stack.append((lbl_start, lbl_end, lbl_update))
 
+        pushed = False
+        if self.current_func is None:
+            self._push_block_env()
+            pushed = True
+
         if node.init is not None:
             self._visit(node.init)
 
@@ -396,6 +454,8 @@ class IRGenerator:
         self.emit("goto", None, None, lbl_start)
         self.emit("label", lbl_end, None, None)
 
+        if pushed:
+            self._pop_block_env()
         self.loop_stack.pop()
 
     def _visit_Foreach(self, node: Foreach):
@@ -410,6 +470,11 @@ class IRGenerator:
         lbl_end = self.tm.newLabel()
         lbl_update = self.tm.newLabel()
         self.loop_stack.append((lbl_start, lbl_end, lbl_update))
+
+        pushed = False
+        if self.current_func is None:
+            self._push_block_env()
+            pushed = True
 
         # index = 0
         t_index = self.tm.new_temp()
@@ -447,6 +512,8 @@ class IRGenerator:
 
         self.tm.release_ref(t_collection)
         self.loop_stack.pop()
+        if pushed:
+            self._pop_block_env()
 
     def _visit_TryCatch(self, node: TryCatch):
         """
@@ -596,6 +663,11 @@ class IRGenerator:
 
     def _visit_Var(self, node: Var) -> str:
         name = node.name
+
+        # Variables de bloque en "main" (fuera de función) -> usar temporal persistente
+        if self.current_func is None and (not self.symtab or name not in self.symtab.global_scope.symbols):
+            slot = self._ensure_block_slot(name)
+            return slot
 
         # 1) ¿Es global?
         if self.symtab and name in self.symtab.global_scope.symbols:

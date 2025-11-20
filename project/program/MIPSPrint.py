@@ -249,4 +249,14 @@ class MIPSPrint:
             self.print_int_reg(arg)
             return
 
+        # 5) TEMPORAL SIN METADATA → asumir entero en registro
+        if isinstance(arg, str) and arg.startswith("t"):
+            reg = cg.tm.get_reg(arg)
+            cg._load(arg, reg)
+            self.cg.emit(f"    move $a0, {reg}")
+            self.cg.emit("    li $v0, 1")
+            self.cg.emit("    syscall")
+            self._newline()
+            return
+
         raise Exception(f"MIPSPrint: no se puede imprimir {arg}")

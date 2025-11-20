@@ -32,6 +32,8 @@ class MIPSCodeGen:
 
         # funciones conocidas (para decidir prolog/epilog)
         self.func_labels = set()
+        # temporales que se escriben más de una vez (no tratarlos como constantes)
+        self.mutable_temps = set()
 
         # módulos auxiliares
         self.tm = TempManager()
@@ -83,6 +85,14 @@ class MIPSCodeGen:
             if instr.op == "copy" and isinstance(instr.a, str) and instr.a.startswith('"'):
                 self._add_string_literal(instr.a)
 
+    def _collect_mutable_temps(self):
+        counts = {}
+        for instr in self.quads:
+            r = instr.r
+            if isinstance(r, str) and r.startswith("t"):
+                counts[r] = counts.get(r, 0) + 1
+        self.mutable_temps = {t for t, c in counts.items() if c > 1}
+
     # ==========================================================
     # SECCIÓN .data
     # ==========================================================
@@ -112,10 +122,18 @@ class MIPSCodeGen:
         self.emit("")
         self.emit("# ===== RUNTIME SUPPORT: cs_int_to_string =====")
         self.emit("cs_int_to_string:")
-        self.emit("    addi $sp, $sp, -12")
-        self.emit("    sw $ra, 8($sp)")
-        self.emit("    sw $s0, 4($sp)")
-        self.emit("    sw $s1, 0($sp)")
+        self.emit("    addi $sp, $sp, -44")
+        self.emit("    sw $ra, 40($sp)")
+        self.emit("    sw $s0, 36($sp)")
+        self.emit("    sw $s1, 32($sp)")
+        self.emit("    sw $t0, 28($sp)")
+        self.emit("    sw $t1, 24($sp)")
+        self.emit("    sw $t2, 20($sp)")
+        self.emit("    sw $t3, 16($sp)")
+        self.emit("    sw $t4, 12($sp)")
+        self.emit("    sw $t5, 8($sp)")
+        self.emit("    sw $t6, 4($sp)")
+        self.emit("    sw $t7, 0($sp)")
         self.emit("    move $s1, $a0")   # guardar entero original en s1
         self.emit("    li $a0, 12")
         self.emit("    li $v0, 9")
@@ -156,10 +174,18 @@ class MIPSCodeGen:
         self.emit("cs_its_no_minus:")
         self.emit("    move $v0, $t1")
         self.emit("cs_its_done:")
-        self.emit("    lw $s1, 0($sp)")
-        self.emit("    lw $s0, 4($sp)")
-        self.emit("    lw $ra, 8($sp)")
-        self.emit("    addi $sp, $sp, 12")
+        self.emit("    lw $t7, 0($sp)")
+        self.emit("    lw $t6, 4($sp)")
+        self.emit("    lw $t5, 8($sp)")
+        self.emit("    lw $t4, 12($sp)")
+        self.emit("    lw $t3, 16($sp)")
+        self.emit("    lw $t2, 20($sp)")
+        self.emit("    lw $t1, 24($sp)")
+        self.emit("    lw $t0, 28($sp)")
+        self.emit("    lw $s1, 32($sp)")
+        self.emit("    lw $s0, 36($sp)")
+        self.emit("    lw $ra, 40($sp)")
+        self.emit("    addi $sp, $sp, 44")
         self.emit("    jr $ra")
         self.emit("")
 
@@ -197,10 +223,34 @@ class MIPSCodeGen:
                     self.ptr_table.pop(r, None)
 
                 elif isinstance(a, int) or (isinstance(a, str) and a.isdigit()):
-                    self.temp_int[r] = int(a)
-                    self.temp_string.pop(r, None)
-                    self.temp_ptr.pop(r, None)
-                    self.ptr_table.pop(r, None)
+                    if r in self.mutable_temps:
+                        reg_r = self.tm.get_reg(r)
+                        self.emit(f"    li {reg_r}, {int(a)}")
+                        # tratarlo como valor dinámico (sin meta de constante)
+                        self.temp_string.pop(r, None)
+                        self.temp_int.pop(r, None)
+                        self.temp_ptr.pop(r, None)
+                        self.ptr_table.pop(r, None)
+                    else:
+                        self.temp_int[r] = int(a)
+                        self.temp_string.pop(r, None)
+                        self.temp_ptr.pop(r, None)
+                        self.ptr_table.pop(r, None)
+
+                elif isinstance(a, str) and a in self.temp_int:
+                    # copiar valor constante conocido de otro temporal
+                    if r in self.mutable_temps:
+                        reg_r = self.tm.get_reg(r)
+                        self.emit(f"    li {reg_r}, {int(self.temp_int[a])}")
+                        self.temp_string.pop(r, None)
+                        self.temp_int.pop(r, None)
+                        self.temp_ptr.pop(r, None)
+                        self.ptr_table.pop(r, None)
+                    else:
+                        self.temp_int[r] = self.temp_int[a]
+                        self.temp_string.pop(r, None)
+                        self.temp_ptr.pop(r, None)
+                        self.ptr_table.pop(r, None)
 
                 elif isinstance(a, str) and a in self.ptr_table:
                     reg = self.ptr_table[a]
@@ -216,6 +266,9 @@ class MIPSCodeGen:
                     self.temp_ptr.pop(r, None)
 
                 else:
+                    # copia genérica: cargar 'a' en el registro de 'r'
+                    reg_r = self.tm.get_reg(r)
+                    self._load(a, reg_r)
                     self.temp_string.pop(r, None)
                     self.temp_int.pop(r, None)
                     self.temp_ptr.pop(r, None)
@@ -332,6 +385,16 @@ class MIPSCodeGen:
                     self.temp_string.pop(r, None)
                     self.temp_ptr.pop(r, None)
                     self.ptr_table.pop(r, None)
+                elif sym.type.name in ("string", "list", "array"):
+                    # cargar puntero
+                    self.emit(f"    la {reg}, {label}")
+                    self.emit(f"    lw {reg}, 0({reg})")
+                    self.ptr_table[r] = reg
+                    self.temp_ptr[r] = reg
+                    # limpiar metadata numérica/literal
+                    self.temp_int.pop(r, None)
+                    self.temp_string.pop(r, None)
+                    self.temp_float.pop(r, None)
 
 
     # ==========================================================
@@ -377,7 +440,7 @@ class MIPSCodeGen:
             return
 
         # 4) CONSTANTE ENTERA TEMPORAL
-        if src in self.temp_int:
+        if src in self.temp_int and src not in self.mutable_temps:
             val = self.temp_int[src]
             self.emit(f"    li {dst_reg}, {val}")
             return
@@ -494,6 +557,7 @@ class MIPSCodeGen:
         self.string_pool = {}
         self.literal_labels = {}
 
+        self._collect_mutable_temps()
         self._first_pass()
         self._register_globals()
         self._collect_function_labels()

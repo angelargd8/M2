@@ -8,12 +8,14 @@ class TempManager:
         self.refcount={} # t -> numero de referencias pendientes
         self.label_count = 0 
         self.temp_to_freg = {}
+        self.pinned = set()    # temporales que no deben liberarse
 
         # Registros disponibles
         self.free_regs = [
             "$t0", "$t1", "$t2", "$t3", "$t4",
             "$t5", "$t6", "$t7", "$t8", "$t9",
             "$s0", "$s1", "$s2", "$s3",
+            "$s4", "$s5", "$s6", "$s7",
         ]
 
         self.free_fregs = [
@@ -43,6 +45,10 @@ class TempManager:
         if not t or t not in self.refcount:
             return
 
+        # temporales "anclados" (por ejemplo, variables de bloque en main) no se liberan
+        if t in self.pinned:
+            return
+
         self.refcount[t] -= 1
 
         if self.refcount[t] <= 0:
@@ -53,8 +59,21 @@ class TempManager:
                 del self.temp_to_reg[t]
 
             # Liberar temporal del TempPool
-            self.pool.release(t)
-            del self.refcount[t]
+        self.pool.release(t)
+        del self.refcount[t]
+
+    def pin(self, temp):
+        """Marca un temporal como persistente (no se libera automáticamente)."""
+        self.pinned.add(temp)
+
+    def free_temp(self, temp):
+        """Libera explícitamente el registro asociado a un temporal."""
+        if temp in self.temp_to_reg:
+            reg = self.temp_to_reg[temp]
+            self.free_regs.append(reg)
+            del self.temp_to_reg[temp]
+        self.refcount.pop(temp, None)
+        self.pinned.discard(temp)
 
     def get_reg(self, temp):
         """
@@ -63,6 +82,14 @@ class TempManager:
         """
         if temp in self.temp_to_reg:
             return self.temp_to_reg[temp]
+
+        # Si es un temporal "pinneado", preferir registros $s (callee-saved)
+        if temp in self.pinned:
+            for i, reg in enumerate(self.free_regs):
+                if reg.startswith("$s"):
+                    self.free_regs.pop(i)
+                    self.temp_to_reg[temp] = reg
+                    return reg
 
         if not self.free_regs:
             raise Exception("TempManager: no hay registros MIPS disponibles")

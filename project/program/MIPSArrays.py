@@ -109,17 +109,28 @@ class MIPSArrays:
         index : entero (literal) o string de dígitos
         t_dst : temporal destino (guardamos el valor en un registro)
         """
-        if not self._is_int_like(index):
-            raise Exception(f"getidx: índice dinámico aún no soportado ('{index}')")
-
-        idx = int(index)
-        offset = (idx + 1) * 4
-
         reg_arr = self._get_array_reg(t_arr)
         reg_dst = self.cg.tm.get_reg(t_dst)
 
-        self.cg.emit(f"    # getidx {t_arr}[{idx}] -> {t_dst}")
-        self.cg.emit(f"    lw {reg_dst}, {offset}({reg_arr})")
+        # Índice conocido/literal
+        if self._is_int_like(index):
+            idx = int(index)
+            offset = (idx + 1) * 4
+            self.cg.emit(f"    # getidx {t_arr}[{idx}] -> {t_dst}")
+            self.cg.emit(f"    lw {reg_dst}, {offset}({reg_arr})")
+        elif isinstance(index, str) and index in self.cg.temp_int:
+            idx = int(self.cg.temp_int[index])
+            offset = (idx + 1) * 4
+            self.cg.emit(f"    # getidx {t_arr}[{idx}] -> {t_dst}")
+            self.cg.emit(f"    lw {reg_dst}, {offset}({reg_arr})")
+        else:
+            # Índice dinámico: offset = (idx + 1) * 4
+            reg_idx = self.cg.tm.get_reg(index)
+            self.cg.emit(f"    # getidx {t_arr}[{index}] -> {t_dst} (dinámico)")
+            self.cg.emit(f"    sll $t8, {reg_idx}, 2")   # idx * 4
+            self.cg.emit("    addi $t8, $t8, 4")        # +4 para saltar length
+            self.cg.emit(f"    add $t8, {reg_arr}, $t8")
+            self.cg.emit(f"    lw {reg_dst}, 0($t8)")
 
         # marcamos t_dst como "entero runtime" para que print_int_reg pueda usarlo
         self.cg.temp_int[t_dst] = 0  # valor simbólico

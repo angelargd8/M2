@@ -110,3 +110,10 @@ class MIPSStrings:
         cg.temp_string.pop(r, None)
         cg.temp_int.pop(r, None)
         cg.temp_float.pop(r, None)
+
+        # liberar registros auxiliares usados solo en esta concatenación
+        tm.free_temp(f"{r}_A")
+        tm.free_temp(f"{r}_B")
+        tm.free_temp(f"{r}_BASE")
+        tm.free_temp(f"{r}_CUR")
+        tm.free_temp(f"{r}_CHR")
