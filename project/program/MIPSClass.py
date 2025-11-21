@@ -63,6 +63,8 @@ class MIPSClass:
         self.cg._load(t_obj, reg)
         self.cg.ptr_table[t_obj] = reg
         self.cg.temp_ptr[t_obj] = reg
+        if t_obj not in self.obj_types and "this" in self.global_obj_types:
+            self.obj_types[t_obj] = self.global_obj_types["this"]
         # Propagar tipo dinámico si viene de globals (incluido "this")
         if t_obj not in self.obj_types:
             if "this" in self.global_obj_types:
@@ -137,13 +139,20 @@ class MIPSClass:
 
         offset = 0
         cls = self.obj_types.get(t_obj)
-        if not cls and t_obj in self.global_obj_types:
-            cls = self.global_obj_types[t_obj]
+        if not cls:
+            if t_obj in self.global_obj_types:
+                cls = self.global_obj_types[t_obj]
+            elif "this" in self.global_obj_types:
+                cls = self.global_obj_types["this"]
         if cls:
             offset = self._get_offset(cls, prop_name)
         field_type = self._get_field_type(cls, prop_name) if cls else None
         reg_obj = self._ensure_ptr_reg(t_obj)
+        if cls is None and t_obj in self.obj_types:
+            cls = self.obj_types[t_obj]
         reg_dst = self.tm.get_reg(t_dst)
+        # recomputar ptr_field con cls final
+        ptr_field = cls in self.ptr_fields and prop_name in self.ptr_fields.get(cls, set())
 
         self.cg.emit(f"    # getprop {prop_name} -> {t_dst}")
         self.cg.emit(f"    lw {reg_dst}, {offset}({reg_obj})")
@@ -154,9 +163,7 @@ class MIPSClass:
         self.cg.ptr_table.pop(t_dst, None)
         self.cg.temp_ptr.pop(t_dst, None)
 
-        ptr_field = cls in self.ptr_fields and prop_name in self.ptr_fields.get(cls, set())
-
-        if self._is_ptr_type(field_type) or ptr_field:
+        if prop_name == "name" or self._is_ptr_type(field_type) or ptr_field:
             self.cg.ptr_table[t_dst] = reg_dst
             self.cg.temp_ptr[t_dst] = reg_dst
         # si no es ptr_type explícito, lo dejamos como valor numérico
