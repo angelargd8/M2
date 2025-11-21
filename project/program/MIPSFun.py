@@ -99,6 +99,7 @@ class MIPSFun:
             # si se conoce el tipo dinámico del objeto, usarlo para el label
             if hasattr(cg, "class_mod") and this_temp in cg.class_mod.obj_types:
                 dyn_cls = cg.class_mod.obj_types[this_temp]
+                cg.class_mod.global_obj_types["this"] = dyn_cls
                 _, meth = func_label.split(".", 1)
                 func_label = f"{dyn_cls}.{meth}"
 

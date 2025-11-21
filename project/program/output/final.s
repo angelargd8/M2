@@ -4,21 +4,13 @@
 
 .data
 this: .word 0
-g_PI: .word 314
-g_greeting: .word str_3
-g_flag: .word 0
-g_numbers: .word 1, 2, 3, 4, 5
-g_matrix_row_0: .word 1, 2
-g_matrix_row_1: .word 3, 4
-g_matrix: .word g_matrix_row_0, g_matrix_row_1
+g_dog: .word 0
 exc_handler: .word 0
 exc_value: .word 0
 str_div_zero: .asciiz "division by zero"
-str_0: .asciiz "Hello world"
-str_1: .asciiz "Hello"
-str_2: .asciiz "Compiscript concat"
-str_3: .asciiz "Hello, Compiscript!"
-str_4: .asciiz "test"
+str_0: .asciiz " makes a sound."
+str_1: .asciiz " barks."
+str_2: .asciiz "Rex"
 nl: .asciiz "\n"
 str_lbr: .asciiz "["
 str_rbr: .asciiz "]"
@@ -102,6 +94,175 @@ cs_its_done:
     addi $sp, $sp, 44
     jr $ra
 
+Animal.constructor:
+    addi $sp, $sp, -8
+    sw $fp, 4($sp)
+    sw $ra, 0($sp)
+    move $fp, $sp
+    addi $sp, $sp, -32
+    sw $s0, 0($sp)
+    sw $s1, 4($sp)
+    sw $s2, 8($sp)
+    sw $s3, 12($sp)
+    sw $s4, 16($sp)
+    sw $s5, 20($sp)
+    sw $s6, 24($sp)
+    sw $s7, 28($sp)
+    lw $t0, 8($fp)
+    la $t1, this
+    lw $t1, 0($t1)
+    move $t1, $t1
+    move $t0, $t0
+    # setprop name
+    sw $t0, 0($t1)
+Animal.constructor_epilog:
+    # ---- EPILOG ----
+    lw $s0, 0($sp)
+    lw $s1, 4($sp)
+    lw $s2, 8($sp)
+    lw $s3, 12($sp)
+    lw $s4, 16($sp)
+    lw $s5, 20($sp)
+    lw $s6, 24($sp)
+    lw $s7, 28($sp)
+    addi $sp, $sp, 32
+    lw $ra, 0($sp)
+    lw $fp, 4($sp)
+    addi $sp, $sp, 8
+    beq $ra, $zero, __program_exit
+    jr $ra
+Animal.speak:
+    addi $sp, $sp, -8
+    sw $fp, 4($sp)
+    sw $ra, 0($sp)
+    move $fp, $sp
+    addi $sp, $sp, -32
+    sw $s0, 0($sp)
+    sw $s1, 4($sp)
+    sw $s2, 8($sp)
+    sw $s3, 12($sp)
+    sw $s4, 16($sp)
+    sw $s5, 20($sp)
+    sw $s6, 24($sp)
+    sw $s7, 28($sp)
+    la $t0, this
+    lw $t0, 0($t0)
+    move $t0, $t0
+    # getprop name -> t2
+    lw $t1, 0($t0)
+    move $t1, $t1
+    move $a0, $t1
+    jal cs_int_to_string
+    move $t2, $v0
+    move $t3, $t2
+    la $t4, str_0
+    li $a0, 512
+    li $v0, 9
+    syscall
+    move $t5, $v0
+    move $t6, $t5
+concat_copy_a_t3_1:
+    lb $t7, 0($t3)
+    sb $t7, 0($t6)
+    beq $t7, $zero, concat_copy_b_t3_1
+    addi $t3, $t3, 1
+    addi $t6, $t6, 1
+    j concat_copy_a_t3_1
+concat_copy_b_t3_1:
+    lb $t7, 0($t4)
+    sb $t7, 0($t6)
+    beq $t7, $zero, concat_done_t3_1
+    addi $t4, $t4, 1
+    addi $t6, $t6, 1
+    j concat_copy_b_t3_1
+concat_done_t3_1:
+    sb $zero, 0($t6)
+    move $t2, $t5
+    move $t2, $t2
+    move $v0, $t2
+Animal.speak_epilog:
+    # ---- EPILOG ----
+    lw $s0, 0($sp)
+    lw $s1, 4($sp)
+    lw $s2, 8($sp)
+    lw $s3, 12($sp)
+    lw $s4, 16($sp)
+    lw $s5, 20($sp)
+    lw $s6, 24($sp)
+    lw $s7, 28($sp)
+    addi $sp, $sp, 32
+    lw $ra, 0($sp)
+    lw $fp, 4($sp)
+    addi $sp, $sp, 8
+    beq $ra, $zero, __program_exit
+    jr $ra
+    j Animal.speak_epilog
+Dog.speak:
+    addi $sp, $sp, -8
+    sw $fp, 4($sp)
+    sw $ra, 0($sp)
+    move $fp, $sp
+    addi $sp, $sp, -32
+    sw $s0, 0($sp)
+    sw $s1, 4($sp)
+    sw $s2, 8($sp)
+    sw $s3, 12($sp)
+    sw $s4, 16($sp)
+    sw $s5, 20($sp)
+    sw $s6, 24($sp)
+    sw $s7, 28($sp)
+    la $t0, this
+    lw $t0, 0($t0)
+    move $t0, $t0
+    # getprop name -> t1
+    lw $t1, 0($t0)
+    move $t1, $t1
+    move $a0, $t1
+    jal cs_int_to_string
+    move $t2, $v0
+    move $t3, $t2
+    la $t4, str_1
+    li $a0, 512
+    li $v0, 9
+    syscall
+    move $t5, $v0
+    move $t6, $t5
+concat_copy_a_t2_2:
+    lb $t7, 0($t3)
+    sb $t7, 0($t6)
+    beq $t7, $zero, concat_copy_b_t2_2
+    addi $t3, $t3, 1
+    addi $t6, $t6, 1
+    j concat_copy_a_t2_2
+concat_copy_b_t2_2:
+    lb $t7, 0($t4)
+    sb $t7, 0($t6)
+    beq $t7, $zero, concat_done_t2_2
+    addi $t4, $t4, 1
+    addi $t6, $t6, 1
+    j concat_copy_b_t2_2
+concat_done_t2_2:
+    sb $zero, 0($t6)
+    move $t2, $t5
+    move $t2, $t2
+    move $v0, $t2
+Dog.speak_epilog:
+    # ---- EPILOG ----
+    lw $s0, 0($sp)
+    lw $s1, 4($sp)
+    lw $s2, 8($sp)
+    lw $s3, 12($sp)
+    lw $s4, 16($sp)
+    lw $s5, 20($sp)
+    lw $s6, 24($sp)
+    lw $s7, 28($sp)
+    addi $sp, $sp, 32
+    lw $ra, 0($sp)
+    lw $fp, 4($sp)
+    addi $sp, $sp, 8
+    beq $ra, $zero, __program_exit
+    jr $ra
+    j Dog.speak_epilog
 main:
     addi $sp, $sp, -8
     sw $fp, 4($sp)
@@ -116,334 +277,28 @@ main:
     sw $s5, 20($sp)
     sw $s6, 24($sp)
     sw $s7, 28($sp)
-    # print string (literal/global): str_0
-    la $a0, str_0
-    li $v0, 4
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    li $t0, 1
-    move $t0, $t0
-    move $a0, $t0
-    li $v0, 1
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    la $t1, str_1
-    la $t2, str_2
-    li $a0, 512
+    # newobj Dog -> t3
+    li $a0, 8
     li $v0, 9
     syscall
-    move $t3, $v0
-    move $t4, $t3
-concat_copy_a_t3_1:
-    lb $t5, 0($t1)
-    sb $t5, 0($t4)
-    beq $t5, $zero, concat_copy_b_t3_1
-    addi $t1, $t1, 1
-    addi $t4, $t4, 1
-    j concat_copy_a_t3_1
-concat_copy_b_t3_1:
-    lb $t5, 0($t2)
-    sb $t5, 0($t4)
-    beq $t5, $zero, concat_done_t3_1
-    addi $t2, $t2, 1
-    addi $t4, $t4, 1
-    j concat_copy_b_t3_1
-concat_done_t3_1:
-    sb $zero, 0($t4)
-    move $t6, $t3
+    move $t0, $v0
+    la $t1, str_2
+    # setprop name
+    sw $t1, 0($t0)
+    la $t9, g_dog
+    sw $t0, 0($t9)
+    la $t2, g_dog
+    lw $t2, 0($t2)
+    move $t2, $t2
+    addi $sp, $sp, -4
+    sw $t2, 0($sp)
+    move $t2, $t2
+    la $t9, this
+    sw $t2, 0($t9)
+    jal Dog.speak
+    move $t2, $v0
     # print dynamic string in t3
-    move $a0, $t6
-    li $v0, 4
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    li $t6, 314
-    move $t6, $t6
-    la $t9, g_PI
-    sw $t6, 0($t9)
-    la $t6, str_3
-    la $t9, g_greeting
-    sw $t6, 0($t9)
-    # alloc_array size=5
-    li $a0, 24
-    li $v0, 9
-    syscall
-    move $t6, $v0
-    li $t9, 5
-    sw $t9, 0($t6)
-    li $t7, 1
-    move $t8, $t7
-    # setidx t3[0] = t2
-    lw $t9, 0($t6)
-    li $t7, 0
-    bge $t7, $t9, setidx_oob_t3_0_1
-    sw $t8, 4($t6)
-    j setidx_done_t3_0_1
-setidx_oob_t3_0_1:
-    # índice fuera de rango, se ignora
-setidx_done_t3_0_1:
-    li $t7, 2
-    move $t8, $t7
-    # setidx t3[1] = t2
-    lw $t9, 0($t6)
-    li $t7, 1
-    bge $t7, $t9, setidx_oob_t3_1_2
-    sw $t8, 8($t6)
-    j setidx_done_t3_1_2
-setidx_oob_t3_1_2:
-    # índice fuera de rango, se ignora
-setidx_done_t3_1_2:
-    li $t7, 3
-    move $t8, $t7
-    # setidx t3[2] = t2
-    lw $t9, 0($t6)
-    li $t7, 2
-    bge $t7, $t9, setidx_oob_t3_2_3
-    sw $t8, 12($t6)
-    j setidx_done_t3_2_3
-setidx_oob_t3_2_3:
-    # índice fuera de rango, se ignora
-setidx_done_t3_2_3:
-    li $t7, 4
-    move $t8, $t7
-    # setidx t3[3] = t2
-    lw $t9, 0($t6)
-    li $t7, 3
-    bge $t7, $t9, setidx_oob_t3_3_4
-    sw $t8, 16($t6)
-    j setidx_done_t3_3_4
-setidx_oob_t3_3_4:
-    # índice fuera de rango, se ignora
-setidx_done_t3_3_4:
-    li $t7, 5
-    move $t8, $t7
-    # setidx t3[4] = t2
-    lw $t9, 0($t6)
-    li $t7, 4
-    bge $t7, $t9, setidx_oob_t3_4_5
-    sw $t8, 20($t6)
-    j setidx_done_t3_4_5
-setidx_oob_t3_4_5:
-    # índice fuera de rango, se ignora
-setidx_done_t3_4_5:
-    la $t9, g_numbers
-    sw $t6, 0($t9)
-    # alloc_array size=2
-    li $a0, 12
-    li $v0, 9
-    syscall
-    move $t8, $v0
-    li $t9, 2
-    sw $t9, 0($t8)
-    # alloc_array size=2
-    li $a0, 12
-    li $v0, 9
-    syscall
-    move $t7, $v0
-    li $t9, 2
-    sw $t9, 0($t7)
-    li $t0, 1
-    move $t8, $t0
-    # setidx t2[0] = t1
-    lw $t9, 0($t7)
-    li $t7, 0
-    bge $t7, $t9, setidx_oob_t2_0_6
-    sw $t8, 4($t7)
-    j setidx_done_t2_0_6
-setidx_oob_t2_0_6:
-    # índice fuera de rango, se ignora
-setidx_done_t2_0_6:
-    li $t0, 2
-    move $t8, $t0
-    # setidx t2[1] = t1
-    lw $t9, 0($t7)
-    li $t7, 1
-    bge $t7, $t9, setidx_oob_t2_1_7
-    sw $t8, 8($t7)
-    j setidx_done_t2_1_7
-setidx_oob_t2_1_7:
-    # índice fuera de rango, se ignora
-setidx_done_t2_1_7:
-    move $t8, $t7
-    # setidx t3[0] = t2
-    lw $t9, 0($t8)
-    li $t7, 0
-    bge $t7, $t9, setidx_oob_t3_0_8
-    sw $t8, 4($t8)
-    j setidx_done_t3_0_8
-setidx_oob_t3_0_8:
-    # índice fuera de rango, se ignora
-setidx_done_t3_0_8:
-    # alloc_array size=2
-    li $a0, 12
-    li $v0, 9
-    syscall
-    move $t7, $v0
-    li $t9, 2
-    sw $t9, 0($t7)
-    li $t0, 3
-    move $t8, $t0
-    # setidx t2[0] = t1
-    lw $t9, 0($t7)
-    li $t7, 0
-    bge $t7, $t9, setidx_oob_t2_0_9
-    sw $t8, 4($t7)
-    j setidx_done_t2_0_9
-setidx_oob_t2_0_9:
-    # índice fuera de rango, se ignora
-setidx_done_t2_0_9:
-    li $t0, 4
-    move $t8, $t0
-    # setidx t2[1] = t1
-    lw $t9, 0($t7)
-    li $t7, 1
-    bge $t7, $t9, setidx_oob_t2_1_10
-    sw $t8, 8($t7)
-    j setidx_done_t2_1_10
-setidx_oob_t2_1_10:
-    # índice fuera de rango, se ignora
-setidx_done_t2_1_10:
-    move $t8, $t7
-    # setidx t3[1] = t2
-    lw $t9, 0($t8)
-    li $t7, 1
-    bge $t7, $t9, setidx_oob_t3_1_11
-    sw $t8, 8($t8)
-    j setidx_done_t3_1_11
-setidx_oob_t3_1_11:
-    # índice fuera de rango, se ignora
-setidx_done_t3_1_11:
-    la $t9, g_matrix
-    sw $t8, 0($t9)
-    la $t0, g_PI
-    lw $a0, 0($t0)
-    li $v0, 1
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    la $t0, g_greeting
-    lw $a0, 0($t0)
-    li $v0, 4
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    la $t0, g_flag
-    lw $a0, 0($t0)
-    li $v0, 1
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    # print 1D global array numbers
-    li $a0, 91
-    li $v0, 11
-    syscall
-    li $a0, 1
-    li $v0, 1
-    syscall
-    li $a0, 44
-    li $v0, 11
-    syscall
-    li $a0, 32
-    li $v0, 11
-    syscall
-    li $a0, 2
-    li $v0, 1
-    syscall
-    li $a0, 44
-    li $v0, 11
-    syscall
-    li $a0, 32
-    li $v0, 11
-    syscall
-    li $a0, 3
-    li $v0, 1
-    syscall
-    li $a0, 44
-    li $v0, 11
-    syscall
-    li $a0, 32
-    li $v0, 11
-    syscall
-    li $a0, 4
-    li $v0, 1
-    syscall
-    li $a0, 44
-    li $v0, 11
-    syscall
-    li $a0, 32
-    li $v0, 11
-    syscall
-    li $a0, 5
-    li $v0, 1
-    syscall
-    li $a0, 93
-    li $v0, 11
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    # print 2D global array matrix
-    li $a0, 91
-    li $v0, 11
-    syscall
-    li $a0, 91
-    li $v0, 11
-    syscall
-    li $a0, 1
-    li $v0, 1
-    syscall
-    li $a0, 44
-    li $v0, 11
-    syscall
-    li $a0, 32
-    li $v0, 11
-    syscall
-    li $a0, 2
-    li $v0, 1
-    syscall
-    li $a0, 93
-    li $v0, 11
-    syscall
-    li $a0, 44
-    li $v0, 11
-    syscall
-    li $a0, 32
-    li $v0, 11
-    syscall
-    li $a0, 91
-    li $v0, 11
-    syscall
-    li $a0, 3
-    li $v0, 1
-    syscall
-    li $a0, 44
-    li $v0, 11
-    syscall
-    li $a0, 32
-    li $v0, 11
-    syscall
-    li $a0, 4
-    li $v0, 1
-    syscall
-    li $a0, 93
-    li $v0, 11
-    syscall
-    li $a0, 93
-    li $v0, 11
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    # print string (literal/global): str_4
-    la $a0, str_4
+    move $a0, $t2
     li $v0, 4
     syscall
     la $a0, nl

@@ -17,6 +17,7 @@ class MIPSClass:
         self.tm = codegen.tm
         self.obj_types = {}  # temp -> class_name
         self.global_obj_types = {}  # label -> class_name
+        self.ptr_fields = {}  # class_name -> set(campos que son punteros)
         # reserva slot global para 'this'
         if "this: .word 0" not in self.cg.global_data:
             self.cg.global_data.append("this: .word 0")
@@ -62,6 +63,12 @@ class MIPSClass:
         self.cg._load(t_obj, reg)
         self.cg.ptr_table[t_obj] = reg
         self.cg.temp_ptr[t_obj] = reg
+        # Propagar tipo dinámico si viene de globals (incluido "this")
+        if t_obj not in self.obj_types:
+            if "this" in self.global_obj_types:
+                self.obj_types[t_obj] = self.global_obj_types["this"]
+            elif t_obj in self.global_obj_types:
+                self.obj_types[t_obj] = self.global_obj_types[t_obj]
         return reg
 
     # ---------------------- ops ----------------------
@@ -107,6 +114,18 @@ class MIPSClass:
         reg_val = self.tm.get_reg(t_val)
         self.cg._load(t_val, reg_val)
 
+        # si el valor parece puntero (string/obj/array), recuerda el campo como puntero
+        looks_ptr = (
+            t_val in self.cg.temp_ptr
+            or t_val in self.cg.ptr_table
+            or t_val in self.cg.temp_string
+            or (isinstance(t_val, str) and t_val.startswith('"'))
+        )
+        if class_name:
+            pf = self.ptr_fields.setdefault(class_name, set())
+            if looks_ptr:
+                pf.add(prop_name)
+
         self.cg.emit(f"    # setprop {prop_name}")
         self.cg.emit(f"    sw {reg_val}, {offset}({reg_obj})")
 
@@ -135,9 +154,9 @@ class MIPSClass:
         self.cg.ptr_table.pop(t_dst, None)
         self.cg.temp_ptr.pop(t_dst, None)
 
-        if self._is_ptr_type(field_type):
+        ptr_field = cls in self.ptr_fields and prop_name in self.ptr_fields.get(cls, set())
+
+        if self._is_ptr_type(field_type) or ptr_field:
             self.cg.ptr_table[t_dst] = reg_dst
             self.cg.temp_ptr[t_dst] = reg_dst
-        else:
-            # se trata como entero/float/bool; si es float podríamos refinar, pero al menos no queda como puntero
-            pass
+        # si no es ptr_type explícito, lo dejamos como valor numérico

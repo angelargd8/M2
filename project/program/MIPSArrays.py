@@ -80,16 +80,27 @@ class MIPSArrays:
 
         reg_arr = self._get_array_reg(t_arr)
 
-        # --- cargar valor a guardar en $t8 ---
+        def _pick_reg(exclude):
+            # evitamos $t8 porque guarda el valor a escribir
+            exclude = set(exclude) | {"$t8"}
+            for r in ["$t9", "$t7", "$t6", "$t5", "$t4", "$t3", "$t2", "$t1"]:
+                if r not in exclude:
+                    return r
+            return "$t0"
+
+        # --- elegir registro para el valor (evitar colisión con reg_arr) ---
+        value_reg = _pick_reg({reg_arr})
+
+        # --- cargar valor a guardar ---
         if self._is_int_like(t_val):
             val = int(t_val)
-            self.cg.emit(f"    li $t8, {val}")
+            self.cg.emit(f"    li {value_reg}, {val}")
         elif isinstance(t_val, str) and t_val in self.cg.temp_int:
             val = int(self.cg.temp_int[t_val])
-            self.cg.emit(f"    li $t8, {val}")
+            self.cg.emit(f"    li {value_reg}, {val}")
         else:
             reg_val = self.cg.tm.get_reg(t_val)
-            self.cg.emit(f"    move $t8, {reg_val}")
+            self.cg.emit(f"    move {value_reg}, {reg_val}")
 
         # --- índice estático ---
         if self._is_int_like(index) or (isinstance(index, str) and index in self.cg.temp_int):
@@ -97,12 +108,14 @@ class MIPSArrays:
             offset = (idx + 1) * 4  # +1 por el length
             self.cg.emit(f"    # setidx {t_arr}[{idx}] = {t_val}")
             # bounds check simple: if idx >= length skip store
-            self.cg.emit(f"    lw $t9, 0({reg_arr})")
-            self.cg.emit(f"    li $t7, {idx}")
+            len_reg = _pick_reg({reg_arr, value_reg})
+            idx_reg = _pick_reg({reg_arr, value_reg, len_reg})
+            self.cg.emit(f"    lw {len_reg}, 0({reg_arr})")
+            self.cg.emit(f"    li {idx_reg}, {idx}")
             oob_lbl = f"setidx_oob_{t_arr}_{idx}_{cid}"
             done_lbl = f"setidx_done_{t_arr}_{idx}_{cid}"
-            self.cg.emit(f"    bge $t7, $t9, {oob_lbl}")
-            self.cg.emit(f"    sw $t8, {offset}({reg_arr})")
+            self.cg.emit(f"    bge {idx_reg}, {len_reg}, {oob_lbl}")
+            self.cg.emit(f"    sw {value_reg}, {offset}({reg_arr})")
             self.cg.emit(f"    j {done_lbl}")
             self.cg.emit(f"{oob_lbl}:")
             self.cg.emit(f"    # índice fuera de rango, se ignora")
@@ -111,18 +124,19 @@ class MIPSArrays:
 
         # --- índice dinámico ---
         reg_idx = self.cg.tm.get_reg(index)
+        len_reg = _pick_reg({reg_arr, reg_idx, value_reg})
+        offset_reg = _pick_reg({reg_arr, reg_idx, len_reg, value_reg})
         self.cg.emit(f"    # setidx {t_arr}[{index}] = {t_val} (dinámico)")
         # bounds check: if idx >= length, skip store
-        self.cg.emit(f"    lw $t9, 0({reg_arr})")   # length
-        self.cg.emit(f"    move $t7, {reg_idx}")    # idx
+        self.cg.emit(f"    lw {len_reg}, 0({reg_arr})")   # length
         oob_lbl = f"setidx_oob_dyn_{t_arr}_{cid}"
         done_lbl = f"setidx_done_dyn_{t_arr}_{cid}"
-        self.cg.emit(f"    bge $t7, $t9, {oob_lbl}")
+        self.cg.emit(f"    bge {reg_idx}, {len_reg}, {oob_lbl}")
         # offset = (idx + 1) * 4
-        self.cg.emit(f"    sll $t6, {reg_idx}, 2")
-        self.cg.emit("    addi $t6, $t6, 4")
-        self.cg.emit(f"    add $t6, {reg_arr}, $t6")
-        self.cg.emit(f"    sw $t8, 0($t6)")
+        self.cg.emit(f"    sll {offset_reg}, {reg_idx}, 2")
+        self.cg.emit(f"    addi {offset_reg}, {offset_reg}, 4")
+        self.cg.emit(f"    add {offset_reg}, {reg_arr}, {offset_reg}")
+        self.cg.emit(f"    sw {value_reg}, 0({offset_reg})")
         self.cg.emit(f"    j {done_lbl}")
         self.cg.emit(f"{oob_lbl}:")
         self.cg.emit(f"    # índice fuera de rango (dinámico), se ignora")
