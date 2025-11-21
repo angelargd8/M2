@@ -2,6 +2,7 @@ from IR import Instr
 from MIPSPrint import MIPSPrint
 from MIPSStrings import MIPSStrings
 from MIPSVar import MIPSVar
+from MIPSClass import MIPSClass
 from SymbolTable import VariableSymbol, FunctionSymbol
 from TempManager import TempManager
 from MIPSArrays import MIPSArrays
@@ -41,6 +42,7 @@ class MIPSCodeGen:
         self.strings_mod = MIPSStrings(self)
         self.vars_mod = MIPSVar(self)
         self.arrays_mod = MIPSArrays(self)
+        self.class_mod = MIPSClass(self)
         
         self.fun_mod = MIPSFun(self)
         self.sen_mod = MIPSSen(self)
@@ -264,6 +266,9 @@ class MIPSCodeGen:
                     reg = self.ptr_table[a]
                     self.ptr_table[r] = reg
                     self.temp_ptr[r] = reg
+                    # propagar tipo de objeto si aplica
+                    if hasattr(self, "class_mod") and a in self.class_mod.obj_types:
+                        self.class_mod.obj_types[r] = self.class_mod.obj_types[a]
                     self.temp_string.pop(r, None)
                     self.temp_int.pop(r, None)
 
@@ -374,6 +379,14 @@ class MIPSCodeGen:
             elif op == "array_length":
                 self.arrays_mod.length(a, r)
 
+            # ---------- CLASES / OBJETOS ----------
+            elif op == "newobj":
+                self.class_mod.new_object(a, r)
+            elif op == "setprop":
+                self.class_mod.set_prop(a, b, r)
+            elif op == "getprop":
+                self.class_mod.get_prop(a, b, r)
+
             # sentencias de control
             elif op == "iftrue_goto":
                 self.sen_mod.iftrue(a, r)
@@ -407,7 +420,20 @@ class MIPSCodeGen:
                     self.emit(f"    lw {reg}, 0({reg})")
                     self.ptr_table[r] = reg
                     self.temp_ptr[r] = reg
+                    if hasattr(self, "class_mod"):
+                        self.class_mod.obj_types[r] = sym.type.name
                     # limpiar metadata numérica/literal
+                    self.temp_int.pop(r, None)
+                    self.temp_string.pop(r, None)
+                    self.temp_float.pop(r, None)
+                else:
+                    # cualquier otro tipo, tratar como puntero/objeto
+                    self.emit(f"    la {reg}, {label}")
+                    self.emit(f"    lw {reg}, 0({reg})")
+                    self.ptr_table[r] = reg
+                    self.temp_ptr[r] = reg
+                    if hasattr(self, "class_mod") and hasattr(sym, "type") and sym.type:
+                        self.class_mod.obj_types[r] = sym.type.name
                     self.temp_int.pop(r, None)
                     self.temp_string.pop(r, None)
                     self.temp_float.pop(r, None)

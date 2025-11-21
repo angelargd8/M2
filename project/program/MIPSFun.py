@@ -8,6 +8,7 @@ class MIPSFun:
     def __init__(self, codegen):
         self.cg = codegen
         self.current_func = None
+        self.pending_params = []  # params acumulados antes de call
 
     # ----------------------------------------------------
     # Helpers FP[offset]
@@ -61,9 +62,18 @@ class MIPSFun:
         cg._load(t_arg, reg)
         cg.emit("    addi $sp, $sp, -4")
         cg.emit(f"    sw {reg}, 0($sp)")
+        self.pending_params.append(t_arg)
 
     def emit_call(self, func_label, argc, t_res):
         cg = self.cg
+        # Si es método (Clase.metodo), setear 'this' desde el primer arg
+        if isinstance(func_label, str) and "." in func_label and self.pending_params:
+            this_temp = self.pending_params[0]
+            reg_this = cg.tm.get_reg(this_temp)
+            cg._load(this_temp, reg_this)
+            cg.emit("    la $t9, this")
+            cg.emit(f"    sw {reg_this}, 0($t9)")
+
         cg.emit(f"    jal {func_label}")
         if argc and argc > 0:
             cg.emit(f"    addi $sp, $sp, {4 * argc}")
@@ -73,8 +83,9 @@ class MIPSFun:
         # invalidar meta vieja del temporal
         cg.temp_int.pop(t_res, None)
         cg.temp_string.pop(t_res, None)
-        cg.temp_ptr.pop(t_res, None)
-        cg.ptr_table.pop(t_res, None)
+        cg.temp_ptr[t_res] = reg_r
+        cg.ptr_table[t_res] = reg_r
+        self.pending_params.clear()
 
 
     # ----------------------------------------------------

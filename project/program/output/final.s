@@ -3,18 +3,11 @@
 # ===== Compiscript Program =====
 
 .data
-g_addFive: .word 0
-g_restar: .word 0
-g_multiplicar: .word 0
-g_dividir: .float 0.0
-str_0: .asciiz "==SUMA=="
-str_1: .asciiz "5 + 2 = "
-str_2: .asciiz "==RESTA=="
-str_3: .asciiz "5 - 2 = "
-str_4: .asciiz "==MULTIPLICACION=="
-str_5: .asciiz "5 * 2 = "
-str_6: .asciiz "==DIVISION=="
-str_7: .asciiz "5 / 2 = "
+this: .word 0
+g_dog: .word 0
+str_0: .asciiz " makes a sound."
+str_1: .asciiz " barks."
+str_2: .asciiz "Rex"
 nl: .asciiz "\n"
 str_lbr: .asciiz "["
 str_rbr: .asciiz "]"
@@ -93,42 +86,60 @@ cs_its_done:
     addi $sp, $sp, 44
     jr $ra
 
-makeAdder:
+Animal.constructor:
     addi $sp, $sp, -8
     sw $fp, 4($sp)
     sw $ra, 0($sp)
     move $fp, $sp
     lw $t0, 8($fp)
-    li $t1, 2
-    move $t0, $t0
+    la $t1, this
+    lw $t1, 0($t1)
     move $t1, $t1
-    add $t2, $t0, $t1
-    move $t2, $t2
-    move $v0, $t2
+    move $t0, $t0
+    # setprop name
+    sw $t0, 0($t1)
     # ---- EPILOG ----
     move $sp, $fp
     lw $ra, 0($sp)
     lw $fp, 4($sp)
     addi $sp, $sp, 8
     jr $ra
-    # ---- EPILOG ----
-    move $sp, $fp
-    lw $ra, 0($sp)
-    lw $fp, 4($sp)
-    addi $sp, $sp, 8
-    jr $ra
-RESTA:
+Animal.speak:
     addi $sp, $sp, -8
     sw $fp, 4($sp)
     sw $ra, 0($sp)
     move $fp, $sp
-    lw $t0, 8($fp)
-    li $t1, 2
+    la $t0, this
+    lw $t0, 0($t0)
     move $t0, $t0
-    move $t1, $t1
-    sub $t2, $t0, $t1
-    move $t2, $t2
-    move $v0, $t2
+    # getprop name -> t2
+    lw $t1, 0($t0)
+    move $t2, $t1
+    la $t3, str_0
+    li $a0, 512
+    li $v0, 9
+    syscall
+    move $t4, $v0
+    move $t5, $t4
+concat_copy_a_t3_1:
+    lb $t6, 0($t2)
+    sb $t6, 0($t5)
+    beq $t6, $zero, concat_copy_b_t3_1
+    addi $t2, $t2, 1
+    addi $t5, $t5, 1
+    j concat_copy_a_t3_1
+concat_copy_b_t3_1:
+    lb $t6, 0($t3)
+    sb $t6, 0($t5)
+    beq $t6, $zero, concat_done_t3_1
+    addi $t3, $t3, 1
+    addi $t5, $t5, 1
+    j concat_copy_b_t3_1
+concat_done_t3_1:
+    sb $zero, 0($t5)
+    move $t7, $t4
+    move $t7, $t7
+    move $v0, $t7
     # ---- EPILOG ----
     move $sp, $fp
     lw $ra, 0($sp)
@@ -141,43 +152,42 @@ RESTA:
     lw $fp, 4($sp)
     addi $sp, $sp, 8
     jr $ra
-MULTIPLICACION:
+Dog.speak:
     addi $sp, $sp, -8
     sw $fp, 4($sp)
     sw $ra, 0($sp)
     move $fp, $sp
-    lw $t0, 8($fp)
-    li $t1, 2
+    la $t0, this
+    lw $t0, 0($t0)
     move $t0, $t0
-    move $t1, $t1
-    mul $t2, $t0, $t1
-    move $t2, $t2
-    move $v0, $t2
-    # ---- EPILOG ----
-    move $sp, $fp
-    lw $ra, 0($sp)
-    lw $fp, 4($sp)
-    addi $sp, $sp, 8
-    jr $ra
-    # ---- EPILOG ----
-    move $sp, $fp
-    lw $ra, 0($sp)
-    lw $fp, 4($sp)
-    addi $sp, $sp, 8
-    jr $ra
-DIVISION:
-    addi $sp, $sp, -8
-    sw $fp, 4($sp)
-    sw $ra, 0($sp)
-    move $fp, $sp
-    lw $t0, 8($fp)
-    li $t1, 2
-    move $t0, $t0
-    move $t1, $t1
-    div $t0, $t1
-    mflo $t2
-    move $t2, $t2
-    move $v0, $t2
+    # getprop name -> t1
+    lw $t1, 0($t0)
+    move $t2, $t1
+    la $t3, str_1
+    li $a0, 512
+    li $v0, 9
+    syscall
+    move $t4, $v0
+    move $t5, $t4
+concat_copy_a_t2_2:
+    lb $t6, 0($t2)
+    sb $t6, 0($t5)
+    beq $t6, $zero, concat_copy_b_t2_2
+    addi $t2, $t2, 1
+    addi $t5, $t5, 1
+    j concat_copy_a_t2_2
+concat_copy_b_t2_2:
+    lb $t6, 0($t3)
+    sb $t6, 0($t5)
+    beq $t6, $zero, concat_done_t2_2
+    addi $t3, $t3, 1
+    addi $t5, $t5, 1
+    j concat_copy_b_t2_2
+concat_done_t2_2:
+    sb $zero, 0($t5)
+    move $t7, $t4
+    move $t7, $t7
+    move $v0, $t7
     # ---- EPILOG ----
     move $sp, $fp
     lw $ra, 0($sp)
@@ -195,128 +205,29 @@ main:
     sw $fp, 4($sp)
     sw $ra, 0($sp)
     move $fp, $sp
-    # print string (literal/global): str_0
-    la $a0, str_0
-    li $v0, 4
+    # newobj Dog -> t3
+    li $a0, 8
+    li $v0, 9
     syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    li $t0, 5
-    move $t0, $t0
-    addi $sp, $sp, -4
-    sw $t0, 0($sp)
-    jal makeAdder
-    addi $sp, $sp, 4
     move $t0, $v0
-    move $t0, $t0
-    la $t9, g_addFive
+    la $t1, str_2
+    # setprop name
+    sw $t1, 0($t0)
+    la $t9, g_dog
     sw $t0, 0($t9)
-    # print string (literal/global): str_1
-    la $a0, str_1
-    li $v0, 4
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    la $t0, g_addFive
-    lw $a0, 0($t0)
-    li $v0, 1
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    # print string (literal/global): str_2
-    la $a0, str_2
-    li $v0, 4
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    li $t0, 5
-    move $t0, $t0
+    la $t2, g_dog
+    lw $t2, 0($t2)
+    move $t2, $t2
     addi $sp, $sp, -4
-    sw $t0, 0($sp)
-    jal RESTA
-    addi $sp, $sp, 4
-    move $t0, $v0
-    move $t0, $t0
-    la $t9, g_restar
-    sw $t0, 0($t9)
-    # print string (literal/global): str_3
-    la $a0, str_3
+    sw $t2, 0($sp)
+    move $t2, $t2
+    la $t9, this
+    sw $t2, 0($t9)
+    jal Dog.speak
+    move $t2, $v0
+    # print dynamic string in t3
+    move $a0, $t2
     li $v0, 4
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    la $t0, g_restar
-    lw $a0, 0($t0)
-    li $v0, 1
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    # print string (literal/global): str_4
-    la $a0, str_4
-    li $v0, 4
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    li $t0, 5
-    move $t0, $t0
-    addi $sp, $sp, -4
-    sw $t0, 0($sp)
-    jal MULTIPLICACION
-    addi $sp, $sp, 4
-    move $t0, $v0
-    move $t0, $t0
-    la $t9, g_multiplicar
-    sw $t0, 0($t9)
-    # print string (literal/global): str_5
-    la $a0, str_5
-    li $v0, 4
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    la $t0, g_multiplicar
-    lw $a0, 0($t0)
-    li $v0, 1
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    # print string (literal/global): str_6
-    la $a0, str_6
-    li $v0, 4
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    li $t0, 5
-    move $t0, $t0
-    addi $sp, $sp, -4
-    sw $t0, 0($sp)
-    jal DIVISION
-    addi $sp, $sp, 4
-    move $t0, $v0
-    move $t0, $t0
-    mtc1 $t0, $f0
-    cvt.s.w $f0, $f0
-    la $t9, g_dividir
-    s.s $f0, 0($t9)
-    # print string (literal/global): str_7
-    la $a0, str_7
-    li $v0, 4
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    la $t0, g_dividir
-    l.s $f12, 0($t0)
-    li $v0, 2
     syscall
     la $a0, nl
     li $v0, 4

@@ -833,14 +833,25 @@ class IRGenerator:
             t_obj = self._visit(callee.object)
             self.tm.add_ref(t_obj)
 
-            # asumimos label "Clase.metodo" ya conocido por SemanticAnalyzer,
-            # pero aquí no tenemos el tipo estático. Hacemos fallback:
-            label_or_temp = callee.name   # runtime usará dynamic dispatch si lo tienes
+            # intentar resolver tipo estático del objeto
+            clsname = None
+            if isinstance(callee.object, Var) and self.symtab:
+                vs = self.symtab.global_scope.resolve(callee.object.name)
+                if hasattr(vs, "type") and vs.type:
+                    clsname = vs.type.name
+            # label preferido: Clase.metodo si existe en symtab
+            label_candidate = f"{clsname}.{callee.name}" if clsname else callee.name
+            if self.symtab:
+                fs = self.symtab.global_scope.resolve(label_candidate)
+                if isinstance(fs, FunctionSymbol):
+                    label_or_temp = fs.label or label_candidate
+                else:
+                    label_or_temp = label_candidate
+            else:
+                label_or_temp = label_candidate
 
-            # Si quisieras pasar 'this' explícito como primer param, podrías:
-            # self.emit("param", t_obj, None, None)
-            # y aumentar argc en 1. De momento no, porque tu convención
-            # de runtime/métodos lo maneja distinto (cs_alloc_object/cs_getprop).
+            # pasar this como primer param
+            self.emit("param", t_obj, None, None)
             self.tm.release_ref(t_obj)
 
         else:
@@ -866,14 +877,13 @@ class IRGenerator:
         new Clase(args)
         Usamos un runtime cs_alloc_object + llamada opcional a constructor.
         Aquí emitimos un IR genérico:
-            alloc_object Clase, t_obj
-            param t_obj (opcional, si el ctor recibe this)
+            newobj Clase, argc, t_obj
+            param t_obj
             param args...
-            call Clase.constructor, argc, t_tmp
-        Pero para simplificar usamos una sola instrucción 'newobj'.
+            call Clase.constructor, argc+1, t_tmp (se ignora el retorno)
         """
-        # Evaluar args
-        arg_temps = []
+        # Evaluar args (no liberar hasta después del ctor)
+        arg_temps: list[str] = []
         for a in node.args:
             t_a = self._visit(a)
             self.tm.add_ref(t_a)
@@ -882,8 +892,34 @@ class IRGenerator:
         t_obj = self.tm.new_temp()
         self.emit("newobj", node.class_name, len(node.args), t_obj)
 
-        for t_a in arg_temps:
-            self.tm.release_ref(t_a)
+        # Llamar constructor si existe
+        ctor_label = f"{node.class_name}.constructor"
+        fs = None
+        if self.symtab:
+            fs = self.symtab.global_scope.resolve(ctor_label)
+        if fs:
+            # primero this
+            self.emit("param", t_obj, None, None)
+            # luego args
+            for t_a in arg_temps:
+                self.emit("param", t_a, None, None)
+                self.tm.release_ref(t_a)
+            tmp_res = self.tm.new_temp()
+            self.emit("call", ctor_label, len(arg_temps) + 1, tmp_res)
+        else:
+            # Si no hay constructor, intentar mapear args a campos por offset
+            # usando los offsets calculados en SemanticAnalyzer
+            if self.symtab and node.class_name in self.symtab.types:
+                T = self.symtab.types[node.class_name]
+                offsets = getattr(T, "_field_offsets", {}) or {}
+                # ordenar campos por offset ascendente
+                ordered_fields = sorted(offsets.items(), key=lambda kv: kv[1])
+                for (fname, _off), t_a in zip(ordered_fields, arg_temps):
+                    self.emit("setprop", t_obj, fname, t_a)
+                    self.tm.release_ref(t_a)
+            else:
+                for t_a in arg_temps:
+                    self.tm.release_ref(t_a)
 
         return t_obj
 
