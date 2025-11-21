@@ -9,6 +9,8 @@ class MIPSFun:
         self.cg = codegen
         self.current_func = None
         self.pending_params = []  # params acumulados antes de call
+        self.epilog_defined = {}   # func_label -> bool
+        self.frame_effective = {}  # func_label -> frame_size usado
 
     # ----------------------------------------------------
     # Helpers FP[offset]
@@ -27,25 +29,46 @@ class MIPSFun:
         cg = self.cg
 
         f = cg.symtab.global_scope.resolve(func_label)
+        declared_frame = getattr(f, "frame_size", 0) if f else 0
+        local_need = cg.func_local_need.get(func_label, 0)
+        frame_size = max(declared_frame, local_need)
+        self.frame_effective[func_label] = frame_size
 
         cg.emit("    addi $sp, $sp, -8")
         cg.emit("    sw $fp, 4($sp)")
         cg.emit("    sw $ra, 0($sp)")
         cg.emit("    move $fp, $sp")
 
-        # RESERVAR LOCALES
-        if f and hasattr(f, "frame_size") and f.frame_size > 0:
-            cg.emit(f"    addi $sp, $sp, -{f.frame_size}")
+        # RESERVAR LOCALES primero (para que offsets FP[...] no cambien)
+        if frame_size > 0:
+            cg.emit(f"    addi $sp, $sp, -{frame_size}")
+
+        # salvar registros callee-saved $s0-$s7 al final del frame
+        cg.emit("    addi $sp, $sp, -32")
+        for i in range(8):
+            cg.emit(f"    sw $s{i}, {i*4}($sp)")
 
 
     def emit_epilog(self):
         """Epilog estándar."""
         cg = self.cg
+        f = None
+        if cg.symtab and cg.symtab.global_scope:
+            f = cg.symtab.global_scope.resolve(self.current_func)
+        frame_size = getattr(f, "frame_size", 0) if f else 0
+
         cg.emit("    # ---- EPILOG ----")
-        cg.emit("    move $sp, $fp")
+        # restaurar $s0-$s7 (están al final del frame)
+        for i in range(8):
+            cg.emit(f"    lw $s{i}, {i*4}($sp)")
+        cg.emit("    addi $sp, $sp, 32")
+        frame_size = self.frame_effective.get(self.current_func, frame_size)
+        if frame_size and frame_size > 0:
+            cg.emit(f"    addi $sp, $sp, {frame_size}")
         cg.emit("    lw $ra, 0($sp)")
         cg.emit("    lw $fp, 4($sp)")
         cg.emit("    addi $sp, $sp, 8")
+        cg.emit("    beq $ra, $zero, __program_exit")
         cg.emit("    jr $ra")
 
     # ----------------------------------------------------
@@ -137,4 +160,10 @@ class MIPSFun:
             cg.emit("    li $v0, 10")
             cg.emit("    syscall")
         else:
-            self.emit_epilog()
+            # Primer ret: emitir epilog label inline; siguientes: saltar al mismo epilog
+            if self.epilog_defined.get(self.current_func):
+                cg.emit(f"    j {self.current_func}_epilog")
+            else:
+                self.epilog_defined[self.current_func] = True
+                cg.emit(f"{self.current_func}_epilog:")
+                self.emit_epilog()

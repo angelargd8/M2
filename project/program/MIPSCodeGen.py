@@ -37,6 +37,10 @@ class MIPSCodeGen:
         self.func_labels = set()
         # temporales que se escriben más de una vez (no tratarlos como constantes)
         self.mutable_temps = set()
+        # conteo de usos para liberar registros cuando un temp ya no se usa
+        self.temp_use_count = {}
+        # espacio mínimo de frame requerido por usos locales FP[offset<8] por función
+        self.func_local_need = {}
 
         # módulos auxiliares
         self.tm = TempManager()
@@ -98,6 +102,47 @@ class MIPSCodeGen:
             if isinstance(r, str) and r.startswith("t"):
                 counts[r] = counts.get(r, 0) + 1
         self.mutable_temps = {t for t, c in counts.items() if c > 1}
+
+    def _compute_temp_use_count(self):
+        self.temp_use_count = {}
+        for instr in self.quads:
+            for t in self._temps_used_by(instr):
+                self.temp_use_count[t] = self.temp_use_count.get(t, 0) + 1
+
+    def _temps_used_by(self, instr: Instr):
+        op, a, b, r = instr.op, instr.a, instr.b, instr.r
+        uses = []
+
+        def add_if_temp(x):
+            if isinstance(x, str) and x.startswith("t"):
+                uses.append(x)
+
+        add_if_temp(a)
+        add_if_temp(b)
+
+        # algunos ops usan r como operando (no sólo como destino)
+        if op in {"setidx", "setprop"}:
+            add_if_temp(r)
+
+        return uses
+
+    def _consume_temp_uses(self, instr: Instr):
+        for t in self._temps_used_by(instr):
+            if t not in self.temp_use_count:
+                continue
+            self.temp_use_count[t] -= 1
+            if self.temp_use_count[t] <= 0:
+                if t in self.mutable_temps:
+                    continue
+                # ya no se usa: liberar registro y metadata asociada
+                self.tm.free_temp(t)
+                self.temp_int.pop(t, None)
+                self.temp_string.pop(t, None)
+                self.temp_ptr.pop(t, None)
+                self.ptr_table.pop(t, None)
+                self.temp_float.pop(t, None)
+                if hasattr(self, "class_mod"):
+                    self.class_mod.obj_types.pop(t, None)
 
     # ==========================================================
     # SECCIÓN .data
@@ -211,6 +256,12 @@ class MIPSCodeGen:
         self.emit(".text")
         self.emit(".globl main")
         self.emit(".globl cs_int_to_string")
+        # arranque explícito: preparar RA de salida, llamar a main y terminar si retorna
+        self.emit("    la $ra, __program_exit")
+        self.emit("    jal main")
+        self.emit("__program_exit:")
+        self.emit("    li $v0, 10")
+        self.emit("    syscall")
 
         self._emit_runtime_support()
 
@@ -489,6 +540,9 @@ class MIPSCodeGen:
                     self.temp_string.pop(r, None)
                     self.temp_float.pop(r, None)
 
+            # liberar operandos cuyo último uso ya pasó
+            self._consume_temp_uses(instr)
+
 
     # ==========================================================
     # LABELS DE FUNCIONES
@@ -499,6 +553,27 @@ class MIPSCodeGen:
             if isinstance(sym, FunctionSymbol):
                 label = sym.label or sym.name
                 self.func_labels.add(label)
+
+    def _collect_frame_needs(self):
+        current_func = None
+        for instr in self.quads:
+            if instr.op == "label":
+                current_func = instr.a
+                continue
+            if current_func is None:
+                continue
+            addrs = []
+            if instr.op == "load" and isinstance(instr.a, str) and instr.a.startswith("FP["):
+                addrs.append(instr.a)
+            if instr.op == "store" and isinstance(instr.r, str) and instr.r.startswith("FP["):
+                addrs.append(instr.r)
+            for addr in addrs:
+                raw = int(addr[3:-1])
+                if raw < 8:  # locales bajo $fp
+                    need = raw + 4  # bytes
+                    prev = self.func_local_need.get(current_func, 0)
+                    if need > prev:
+                        self.func_local_need[current_func] = need
 
 
     # ==========================================================
@@ -579,7 +654,9 @@ class MIPSCodeGen:
     def _load_from_addr(self, addr, dst_reg):
         # addr viene en formato FP[offset] o nombre de variable global
         if addr.startswith("FP["):
-            offset = int(addr[3:-1])
+            raw = int(addr[3:-1])
+            # convencion: offsets < 8 son locales (debajo de $fp), offsets >= 8 son args/temps arriba
+            offset = -(raw + 4) if raw < 8 else raw
             self.emit(f"    lw {dst_reg}, {offset}($fp)")
         else:
             # variable global
@@ -591,7 +668,8 @@ class MIPSCodeGen:
         self._load(value, reg_val)
 
         if addr.startswith("FP["):
-            offset = int(addr[3:-1])
+            raw = int(addr[3:-1])
+            offset = -(raw + 4) if raw < 8 else raw
             self.emit(f"    sw {reg_val}, {offset}($fp)")
         else:
             # global
@@ -662,6 +740,8 @@ class MIPSCodeGen:
         self._first_pass()
         self._register_globals()
         self._collect_function_labels()
+        self._collect_frame_needs()
+        self._compute_temp_use_count()
         self._gen_data()
         self._gen_text()
 

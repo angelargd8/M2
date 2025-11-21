@@ -4,13 +4,31 @@
 
 .data
 this: .word 0
+g_i: .word 0
+g_k: .word 0
+g_nums: .word 1, 2, 3, 4
+g_total: .word 0
+g_day: .word 3
 exc_handler: .word 0
 exc_value: .word 0
 str_div_zero: .asciiz "division by zero"
-str_0: .asciiz "==TRY-CATCH simple=="
-str_1: .asciiz "NO DEBERÍA VERSE"
-str_2: .asciiz "Caught an error:"
-str_3: .asciiz "end"
+str_0: .asciiz "==WHILE=="
+str_1: .asciiz "i = "
+str_2: .asciiz "==FOR=="
+str_3: .asciiz "j = "
+str_4: .asciiz "==do-while=="
+str_5: .asciiz "k = "
+str_6: .asciiz "==foreach=="
+str_7: .asciiz "Total = "
+str_8: .asciiz "==break - continue =="
+str_9: .asciiz "continue at p = 3"
+str_10: .asciiz "break at p = 7"
+str_11: .asciiz "p = "
+str_12: .asciiz "==switch=="
+str_13: .asciiz "Monday"
+str_14: .asciiz "Tuesday"
+str_15: .asciiz "Wednesday"
+str_16: .asciiz "Unknown day"
 nl: .asciiz "\n"
 str_lbr: .asciiz "["
 str_rbr: .asciiz "]"
@@ -20,6 +38,11 @@ str_array: .asciiz "[array]"
 .text
 .globl main
 .globl cs_int_to_string
+    la $ra, __program_exit
+    jal main
+__program_exit:
+    li $v0, 10
+    syscall
 
 # ===== RUNTIME SUPPORT: cs_int_to_string =====
 cs_int_to_string:
@@ -94,6 +117,15 @@ main:
     sw $fp, 4($sp)
     sw $ra, 0($sp)
     move $fp, $sp
+    addi $sp, $sp, -32
+    sw $s0, 0($sp)
+    sw $s1, 4($sp)
+    sw $s2, 8($sp)
+    sw $s3, 12($sp)
+    sw $s4, 16($sp)
+    sw $s5, 20($sp)
+    sw $s6, 24($sp)
+    sw $s7, 28($sp)
     # print string (literal/global): str_0
     la $a0, str_0
     li $v0, 4
@@ -101,50 +133,67 @@ main:
     la $a0, nl
     li $v0, 4
     syscall
-    # push_handler L1
-    la $t9, exc_handler
-    la $t8, L1
-    sw $t8, 0($t9)
-    li $t0, 10
-    move $t1, $t0
     li $t0, 0
-    move $t2, $t0
+    move $t0, $t0
+    la $t9, g_i
+    sw $t0, 0($t9)
+L1:
+    la $t0, g_i
+    lw $t0, 0($t0)
+    li $t1, 5
+    move $t0, $t0
     move $t1, $t1
+    slt $t2, $t0, $t1
     move $t2, $t2
-    beq $t2, $zero, DZ_ERR_L1
-    div $t1, $t2
-    mflo $t0
-    j DZ_OK_L1
-DZ_ERR_L1:
-    la $t8, str_div_zero
-    la $t9, exc_value
-    sw $t8, 0($t9)
-    la $t9, exc_handler
-    lw $t9, 0($t9)
-    beq $t9, $zero, DZ_JMP_L1
-    jr $t9
-DZ_JMP_L1:
-    li $v0, 10
+    beq $t2, $zero, L2
+    la $t1, g_i
+    lw $t1, 0($t1)
+    move $t1, $t1
+    move $a0, $t1
+    jal cs_int_to_string
+    move $t0, $v0
+    la $t3, str_1
+    move $t4, $t0
+    li $a0, 512
+    li $v0, 9
     syscall
-DZ_OK_L1:
-    move $t3, $t0
-    # print string (literal/global): str_1
-    la $a0, str_1
+    move $t5, $v0
+    move $t6, $t5
+concat_copy_a_t1_1:
+    lb $t7, 0($t3)
+    sb $t7, 0($t6)
+    beq $t7, $zero, concat_copy_b_t1_1
+    addi $t3, $t3, 1
+    addi $t6, $t6, 1
+    j concat_copy_a_t1_1
+concat_copy_b_t1_1:
+    lb $t7, 0($t4)
+    sb $t7, 0($t6)
+    beq $t7, $zero, concat_done_t1_1
+    addi $t4, $t4, 1
+    addi $t6, $t6, 1
+    j concat_copy_b_t1_1
+concat_done_t1_1:
+    sb $zero, 0($t6)
+    move $t0, $t5
+    # print dynamic string in t1
+    move $a0, $t0
     li $v0, 4
     syscall
     la $a0, nl
     li $v0, 4
     syscall
-    # pop_handler
-    la $t9, exc_handler
-    sw $zero, 0($t9)
-    la $t9, exc_value
-    sw $zero, 0($t9)
-    j L2
-L1:
-    # get_exception
-    la $t9, exc_value
-    lw $t0, 0($t9)
+    la $t0, g_i
+    lw $t0, 0($t0)
+    li $t1, 1
+    move $t0, $t0
+    move $t1, $t1
+    add $t2, $t0, $t1
+    move $t2, $t2
+    la $t9, g_i
+    sw $t2, 0($t9)
+    j L1
+L2:
     # print string (literal/global): str_2
     la $a0, str_2
     li $v0, 4
@@ -152,20 +201,397 @@ L1:
     la $a0, nl
     li $v0, 4
     syscall
-    # print dynamic string in t5
-    move $a0, $t0
+    li $t2, 0
+    move $t1, $t2
+L3:
+    li $t2, 4
+    move $t1, $t1
+    move $t2, $t2
+    slt $t0, $t1, $t2
+    move $t0, $t0
+    beq $t0, $zero, L4
+    move $t1, $t1
+    move $a0, $t1
+    jal cs_int_to_string
+    move $t2, $v0
+    la $t8, str_3
+    move $t9, $t2
+    li $a0, 512
+    li $v0, 9
+    syscall
+    move $s0, $v0
+    move $s1, $s0
+concat_copy_a_t3_2:
+    lb $s2, 0($t8)
+    sb $s2, 0($s1)
+    beq $s2, $zero, concat_copy_b_t3_2
+    addi $t8, $t8, 1
+    addi $s1, $s1, 1
+    j concat_copy_a_t3_2
+concat_copy_b_t3_2:
+    lb $s2, 0($t9)
+    sb $s2, 0($s1)
+    beq $s2, $zero, concat_done_t3_2
+    addi $t9, $t9, 1
+    addi $s1, $s1, 1
+    j concat_copy_b_t3_2
+concat_done_t3_2:
+    sb $zero, 0($s1)
+    move $t2, $s0
+    # print dynamic string in t3
+    move $a0, $t2
     li $v0, 4
     syscall
     la $a0, nl
     li $v0, 4
     syscall
-L2:
-    # print string (literal/global): str_3
-    la $a0, str_3
+L5:
+    li $t2, 1
+    move $t1, $t1
+    move $t2, $t2
+    add $t0, $t1, $t2
+    move $t1, $t0
+    j L3
+L4:
+    # print string (literal/global): str_4
+    la $a0, str_4
     li $v0, 4
     syscall
     la $a0, nl
     li $v0, 4
     syscall
+    li $t0, 0
+    move $t0, $t0
+    la $t9, g_k
+    sw $t0, 0($t9)
+L6:
+    la $t2, g_k
+    lw $t2, 0($t2)
+    move $t2, $t2
+    move $a0, $t2
+    jal cs_int_to_string
+    move $s3, $v0
+    la $s4, str_5
+    move $s5, $s3
+    li $a0, 512
+    li $v0, 9
+    syscall
+    move $s6, $v0
+    move $s7, $s6
+concat_copy_a_t4_3:
+    lb $t3, 0($s4)
+    sb $t3, 0($s7)
+    beq $t3, $zero, concat_copy_b_t4_3
+    addi $s4, $s4, 1
+    addi $s7, $s7, 1
+    j concat_copy_a_t4_3
+concat_copy_b_t4_3:
+    lb $t3, 0($s5)
+    sb $t3, 0($s7)
+    beq $t3, $zero, concat_done_t4_3
+    addi $s5, $s5, 1
+    addi $s7, $s7, 1
+    j concat_copy_b_t4_3
+concat_done_t4_3:
+    sb $zero, 0($s7)
+    move $s3, $s6
+    # print dynamic string in t4
+    move $a0, $s3
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    la $s3, g_k
+    lw $s3, 0($s3)
+    li $t2, 1
+    move $s3, $s3
+    move $t2, $t2
+    add $t0, $s3, $t2
+    move $t0, $t0
+    la $t9, g_k
+    sw $t0, 0($t9)
+    la $t0, g_k
+    lw $t0, 0($t0)
+    li $t2, 3
+    move $t0, $t0
+    move $t2, $t2
+    slt $s3, $t0, $t2
+    move $s3, $s3
+    bne $s3, $zero, L6
+L7:
+    # print string (literal/global): str_6
+    la $a0, str_6
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    # alloc_array size=4
+    li $a0, 20
+    li $v0, 9
+    syscall
+    move $s3, $v0
+    li $t9, 4
+    sw $t9, 0($s3)
+    li $t2, 1
+    move $t8, $t2
+    # setidx t4[0] = t3
+    sw $t8, 4($s3)
+    li $t2, 2
+    move $t8, $t2
+    # setidx t4[1] = t3
+    sw $t8, 8($s3)
+    li $t2, 3
+    move $t8, $t2
+    # setidx t4[2] = t3
+    sw $t8, 12($s3)
+    li $t2, 4
+    move $t8, $t2
+    # setidx t4[3] = t3
+    sw $t8, 16($s3)
+    la $t9, g_nums
+    sw $s3, 0($t9)
+    li $a0, 0
+    move $a0, $a0
+    la $t9, g_total
+    sw $a0, 0($t9)
+    la $a0, g_nums
+    lw $a0, 0($a0)
+    li $t2, 0
+    # array_length t4 -> t1
+    lw $t0, 0($a0)
+L8:
+    move $t2, $t2
+    move $t0, $t0
+    slt $a1, $t2, $t0
+    move $a1, $a1
+    beq $a1, $zero, L9
+    # getidx t4[t3] -> t6 (dinámico)
+    sll $t6, $t2, 2
+    addi $t6, $t6, 4
+    lw $t8, 0($a0)
+    move $t7, $t2
+    bge $t7, $t8, getidx_oob_dyn_t6
+    add $t6, $a0, $t6
+    lw $a2, 0($t6)
+    j getidx_done_t6
+getidx_oob_static_t6:
+    li $a2, 0
+    j getidx_done_t6
+getidx_oob_dyn_t6:
+    li $a2, 0
+getidx_done_t6:
+    move $a3, $a2
+    la $t4, g_total
+    lw $t4, 0($t4)
+    move $t4, $t4
+    move $a3, $a3
+    add $t5, $t4, $a3
+    move $t5, $t5
+    la $t9, g_total
+    sw $t5, 0($t9)
+L10:
+    li $t5, 1
+    move $t2, $t2
+    move $t5, $t5
+    add $t4, $t2, $t5
+    move $t2, $t4
+    j L8
+L9:
+    la $t6, g_total
+    lw $t6, 0($t6)
+    move $t6, $t6
+    move $a0, $t6
+    jal cs_int_to_string
+    move $t7, $v0
+    la $t8, str_7
+    move $t9, $t7
+    li $a0, 512
+    li $v0, 9
+    syscall
+    move $s0, $v0
+    move $s1, $s0
+concat_copy_a_t11_4:
+    lb $s2, 0($t8)
+    sb $s2, 0($s1)
+    beq $s2, $zero, concat_copy_b_t11_4
+    addi $t8, $t8, 1
+    addi $s1, $s1, 1
+    j concat_copy_a_t11_4
+concat_copy_b_t11_4:
+    lb $s2, 0($t9)
+    sb $s2, 0($s1)
+    beq $s2, $zero, concat_done_t11_4
+    addi $t9, $t9, 1
+    addi $s1, $s1, 1
+    j concat_copy_b_t11_4
+concat_done_t11_4:
+    sb $zero, 0($s1)
+    move $t7, $s0
+    # print dynamic string in t11
+    move $a0, $t7
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    # print string (literal/global): str_8
+    la $a0, str_8
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    li $t7, 0
+    move $t6, $t7
+L11:
+    li $t7, 10
+    move $t6, $t6
+    move $t7, $t7
+    slt $a0, $t6, $t7
+    move $a0, $a0
+    beq $a0, $zero, L12
+    li $a0, 3
+    move $t6, $t6
+    move $a0, $a0
+    xor $t7, $t6, $a0
+    sltiu $t7, $t7, 1
+    move $t7, $t7
+    beq $t7, $zero, L14
+    # print string (literal/global): str_9
+    la $a0, str_9
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    j L13
+L14:
+    li $t7, 7
+    move $t6, $t6
+    move $t7, $t7
+    xor $a0, $t6, $t7
+    sltiu $a0, $a0, 1
+    move $a0, $a0
+    beq $a0, $zero, L16
+    # print string (literal/global): str_10
+    la $a0, str_10
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    j L12
+L16:
+    move $t6, $t6
+    move $a0, $t6
+    jal cs_int_to_string
+    move $t7, $v0
+    la $s4, str_11
+    move $s5, $t7
+    li $a0, 512
+    li $v0, 9
+    syscall
+    move $s6, $v0
+    move $s7, $s6
+concat_copy_a_t11_5:
+    lb $t3, 0($s4)
+    sb $t3, 0($s7)
+    beq $t3, $zero, concat_copy_b_t11_5
+    addi $s4, $s4, 1
+    addi $s7, $s7, 1
+    j concat_copy_a_t11_5
+concat_copy_b_t11_5:
+    lb $t3, 0($s5)
+    sb $t3, 0($s7)
+    beq $t3, $zero, concat_done_t11_5
+    addi $s5, $s5, 1
+    addi $s7, $s7, 1
+    j concat_copy_b_t11_5
+concat_done_t11_5:
+    sb $zero, 0($s7)
+    move $t7, $s6
+    # print dynamic string in t11
+    move $a0, $t7
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+L13:
+    li $t7, 1
+    move $t6, $t6
+    move $t7, $t7
+    add $a0, $t6, $t7
+    move $t6, $a0
+    j L11
+L12:
+    # print string (literal/global): str_12
+    la $a0, str_12
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    li $a0, 3
+    move $a0, $a0
+    la $t9, g_day
+    sw $a0, 0($t9)
+    la $a0, g_day
+    lw $a0, 0($a0)
+    li $t7, 1
+    move $a0, $a0
+    move $t7, $t7
+    xor $s3, $a0, $t7
+    sltiu $s3, $s3, 1
+    move $s3, $s3
+    bne $s3, $zero, L19
+    move $a0, $a0
+    li $a1, 2
+    xor $a2, $a0, $a1
+    sltiu $a2, $a2, 1
+    move $a2, $a2
+    bne $a2, $zero, L20
+    move $a0, $a0
+    li $a3, 3
+    xor $t8, $a0, $a3
+    sltiu $t8, $t8, 1
+    move $t8, $t8
+    bne $t8, $zero, L21
+    j L22
+L19:
+    # print string (literal/global): str_13
+    la $a0, str_13
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+L20:
+    # print string (literal/global): str_14
+    la $a0, str_14
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+L21:
+    # print string (literal/global): str_15
+    la $a0, str_15
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+L22:
+    # print string (literal/global): str_16
+    la $a0, str_16
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+L18:
     li $v0, 10
     syscall

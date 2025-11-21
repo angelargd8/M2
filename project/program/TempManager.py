@@ -60,8 +60,8 @@ class TempManager:
                 del self.temp_to_reg[t]
 
             # Liberar temporal del TempPool
-        self.pool.release(t)
-        del self.refcount[t]
+            self.pool.release(t)
+            del self.refcount[t]
 
     def pin(self, temp):
         """Marca un temporal como persistente (no se libera automáticamente)."""
@@ -107,7 +107,15 @@ class TempManager:
                 return reg
 
         if not self.free_regs:
-            raise Exception("TempManager: no hay registros MIPS disponibles")
+            detalles = []
+            for k in sorted(self.temp_to_reg.keys()):
+                rc = self.refcount.get(k, None)
+                if rc is None:
+                    detalles.append(f"{k}(rc=?)")
+                else:
+                    detalles.append(f"{k}(rc={rc})")
+            ocupados = ", ".join(detalles)
+            raise Exception(f"TempManager: no hay registros MIPS disponibles (ocupados: {ocupados})")
 
         reg = self.free_regs.pop(0)
         self.temp_to_reg[temp] = reg
