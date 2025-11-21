@@ -17,6 +17,7 @@
 class MIPSArrays:
     def __init__(self, codegen):
         self.cg = codegen  # referencia a MIPSCodeGen
+        self.counter = 0   # para etiquetas únicas en setidx
 
     # ----------------- helpers internos -----------------
 
@@ -74,30 +75,58 @@ class MIPSArrays:
         index : entero (literal) o string de dígitos
         t_val : temporal entero o literal entero
         """
-        if not self._is_int_like(index):
-            raise Exception(f"setidx: índice dinámico aún no soportado ('{index}')")
-
-        idx = int(index)
-        offset = (idx + 1) * 4  # +1 por el length
+        self.counter += 1
+        cid = self.counter
 
         reg_arr = self._get_array_reg(t_arr)
 
-        # cargar valor (literal o temporal) en $t8
+        # --- cargar valor a guardar en $t8 ---
         if self._is_int_like(t_val):
             val = int(t_val)
             self.cg.emit(f"    li $t8, {val}")
         elif isinstance(t_val, str) and t_val in self.cg.temp_int:
-            # conocemos el valor constante
             val = int(self.cg.temp_int[t_val])
             self.cg.emit(f"    li $t8, {val}")
         else:
-            # t_val es un temporal cuya info no tenemos como constante,
-            # asumimos que ya vive en algún registro asignado por TempManager
             reg_val = self.cg.tm.get_reg(t_val)
             self.cg.emit(f"    move $t8, {reg_val}")
 
-        self.cg.emit(f"    # setidx {t_arr}[{idx}] = {t_val}")
-        self.cg.emit(f"    sw $t8, {offset}({reg_arr})")
+        # --- índice estático ---
+        if self._is_int_like(index) or (isinstance(index, str) and index in self.cg.temp_int):
+            idx = int(index) if self._is_int_like(index) else int(self.cg.temp_int[index])
+            offset = (idx + 1) * 4  # +1 por el length
+            self.cg.emit(f"    # setidx {t_arr}[{idx}] = {t_val}")
+            # bounds check simple: if idx >= length skip store
+            self.cg.emit(f"    lw $t9, 0({reg_arr})")
+            self.cg.emit(f"    li $t7, {idx}")
+            oob_lbl = f"setidx_oob_{t_arr}_{idx}_{cid}"
+            done_lbl = f"setidx_done_{t_arr}_{idx}_{cid}"
+            self.cg.emit(f"    bge $t7, $t9, {oob_lbl}")
+            self.cg.emit(f"    sw $t8, {offset}({reg_arr})")
+            self.cg.emit(f"    j {done_lbl}")
+            self.cg.emit(f"{oob_lbl}:")
+            self.cg.emit(f"    # índice fuera de rango, se ignora")
+            self.cg.emit(f"{done_lbl}:")
+            return
+
+        # --- índice dinámico ---
+        reg_idx = self.cg.tm.get_reg(index)
+        self.cg.emit(f"    # setidx {t_arr}[{index}] = {t_val} (dinámico)")
+        # bounds check: if idx >= length, skip store
+        self.cg.emit(f"    lw $t9, 0({reg_arr})")   # length
+        self.cg.emit(f"    move $t7, {reg_idx}")    # idx
+        oob_lbl = f"setidx_oob_dyn_{t_arr}_{cid}"
+        done_lbl = f"setidx_done_dyn_{t_arr}_{cid}"
+        self.cg.emit(f"    bge $t7, $t9, {oob_lbl}")
+        # offset = (idx + 1) * 4
+        self.cg.emit(f"    sll $t6, {reg_idx}, 2")
+        self.cg.emit("    addi $t6, $t6, 4")
+        self.cg.emit(f"    add $t6, {reg_arr}, $t6")
+        self.cg.emit(f"    sw $t8, 0($t6)")
+        self.cg.emit(f"    j {done_lbl}")
+        self.cg.emit(f"{oob_lbl}:")
+        self.cg.emit(f"    # índice fuera de rango (dinámico), se ignora")
+        self.cg.emit(f"{done_lbl}:")
 
     # ----------------- getidx -----------------
 

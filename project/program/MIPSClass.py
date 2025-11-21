@@ -34,6 +34,23 @@ class MIPSClass:
         # fallback defensivo
         return 0
 
+    def _get_field_type(self, class_name, prop):
+        T = self._get_type(class_name)
+        if T and T.fields and prop in T.fields:
+            return T.fields[prop]
+        return None
+
+    def _is_ptr_type(self, t):
+        if t is None:
+            return False
+        if t.name in ("string", "list", "array"):
+            return True
+        # tipos de clase u objetos tienen fields -> tratarlos como puntero
+        if t.fields is not None:
+            return True
+        # cualquier tipo no primitivo conocido, considerarlo referencia
+        return t.name not in ("int", "float", "bool", "void")
+
     def _ensure_ptr_reg(self, t_obj):
         """
         Devuelve un registro con el puntero al objeto.
@@ -101,22 +118,26 @@ class MIPSClass:
 
         offset = 0
         cls = self.obj_types.get(t_obj)
-        if not cls:
-            # intentar recuperar desde globales si el temporal viene de loadvar
-            for lbl, cls_name in self.global_obj_types.items():
-                if t_obj == lbl or cls_name:
-                    cls = cls_name
-                    break
+        if not cls and t_obj in self.global_obj_types:
+            cls = self.global_obj_types[t_obj]
         if cls:
             offset = self._get_offset(cls, prop_name)
+        field_type = self._get_field_type(cls, prop_name) if cls else None
         reg_obj = self._ensure_ptr_reg(t_obj)
         reg_dst = self.tm.get_reg(t_dst)
 
         self.cg.emit(f"    # getprop {prop_name} -> {t_dst}")
         self.cg.emit(f"    lw {reg_dst}, {offset}({reg_obj})")
 
-        # marcar como puntero (útil para strings)
-        self.cg.ptr_table[t_dst] = reg_dst
-        self.cg.temp_ptr[t_dst] = reg_dst
+        # clasificar resultado según tipo del campo
         self.cg.temp_int.pop(t_dst, None)
         self.cg.temp_string.pop(t_dst, None)
+        self.cg.ptr_table.pop(t_dst, None)
+        self.cg.temp_ptr.pop(t_dst, None)
+
+        if self._is_ptr_type(field_type):
+            self.cg.ptr_table[t_dst] = reg_dst
+            self.cg.temp_ptr[t_dst] = reg_dst
+        else:
+            # se trata como entero/float/bool; si es float podríamos refinar, pero al menos no queda como puntero
+            pass
