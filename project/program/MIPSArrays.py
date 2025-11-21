@@ -159,6 +159,10 @@ class MIPSArrays:
 
         # marcamos t_dst como "entero runtime" para que print_int_reg pueda usarlo
         self.cg.temp_int.pop(t_dst, None)  # valor dinámico, no constante
+        # limpiar cualquier metadata previa de puntero/strings por si el temporal se reutiliza
+        self.cg.ptr_table.pop(t_dst, None)
+        self.cg.temp_ptr.pop(t_dst, None)
+        self.cg.temp_string.pop(t_dst, None)
 
     # ----------------- array_length -----------------
 

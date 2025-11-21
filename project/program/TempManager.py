@@ -3,7 +3,7 @@
 from TempPool import TempPool
 
 class TempManager:
-    def __init__(self):
+    def __init__(self, codegen=None):
         self.pool = TempPool()
         self.refcount={} # t -> numero de referencias pendientes
         self.label_count = 0 
@@ -15,6 +15,7 @@ class TempManager:
             "$s0", "$s1", "$s2", "$s3", "$s4", "$s5", "$s6", "$s7",
             "$a0", "$a1", "$a2", "$a3",
         ]
+        self.codegen = codegen
 
         # Registros disponibles
         self.free_regs = list(self._base_free_regs)
@@ -143,4 +144,3 @@ class TempManager:
         self.free_regs = list(self._base_free_regs)
         self.temp_to_reg.clear()
         self.temp_to_freg.clear()
-    

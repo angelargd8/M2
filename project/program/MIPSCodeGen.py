@@ -43,7 +43,7 @@ class MIPSCodeGen:
         self.func_local_need = {}
 
         # módulos auxiliares
-        self.tm = TempManager()
+        self.tm = TempManager(self)
         self.print_mod = MIPSPrint(self)
         self.strings_mod = MIPSStrings(self)
         self.vars_mod = MIPSVar(self)
@@ -275,9 +275,13 @@ class MIPSCodeGen:
                     self.tm.reset_regs()
                     self.temp_string.clear()
                     self.temp_int.clear()
+                    # limpiar metadata de punteros para evitar registros "fantasma"
                     self.temp_ptr.clear()
                     self.ptr_table.clear()
                     self.temp_float.clear()
+                    self.temp_bool.clear()
+                    if hasattr(self, "class_mod"):
+                        self.class_mod.obj_types.clear()
                 self.emit(f"{a}:")
                 if a in self.func_labels:
                     self.fun_mod.emit_prolog(a)
@@ -698,8 +702,17 @@ class MIPSCodeGen:
             reg_b = self.tm.get_reg(b)
             self._load(b, reg_b)
 
+            # self.emit(f"    move $a0, {reg_b}")
+            # self.emit("    jal cs_int_to_string")
+            self.emit("    addi $sp, $sp, -4")
+            self.emit("    sw $a0, 0($sp)")
+
             self.emit(f"    move $a0, {reg_b}")
             self.emit("    jal cs_int_to_string")
+
+            # restaurar $a0
+            self.emit("    lw $a0, 0($sp)")
+            self.emit("    addi $sp, $sp, 4")
             reg_tmp = self.tm.get_reg(r)
             self.emit(f"    move {reg_tmp}, $v0")
 

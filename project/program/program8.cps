@@ -29,6 +29,6 @@ print("==DIVISION==");
 function DIVISION(x: float): float {
   return x / 2;
 }
-let dividir: float = (DIVISION(5));
-print("5 / 2 = " );
+let dividir: float = (DIVISION(10));
+print("10 / 2 = " );
 print(dividir);
