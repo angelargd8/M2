@@ -269,6 +269,10 @@ class MIPSCodeGen:
                     # propagar tipo de objeto si aplica
                     if hasattr(self, "class_mod") and a in self.class_mod.obj_types:
                         self.class_mod.obj_types[r] = self.class_mod.obj_types[a]
+                        # también propagar a global_obj_types si 'a' viene de un global
+                        for lbl, cls in self.class_mod.global_obj_types.items():
+                            if cls == self.class_mod.obj_types[a]:
+                                self.class_mod.global_obj_types[lbl] = cls
                     self.temp_string.pop(r, None)
                     self.temp_int.pop(r, None)
 
@@ -345,6 +349,9 @@ class MIPSCodeGen:
                         self.ptr_table.pop(a, None)
                         self.temp_ptr.pop(a, None)
                         self.tm.free_temp(a)
+                    if hasattr(self, "class_mod") and a in self.class_mod.obj_types:
+                        cls = self.class_mod.obj_types[a]
+                        self.class_mod.global_obj_types[label] = cls
 
 
             elif op in ["-", "*", "/", "%"]:
@@ -421,7 +428,10 @@ class MIPSCodeGen:
                     self.ptr_table[r] = reg
                     self.temp_ptr[r] = reg
                     if hasattr(self, "class_mod"):
-                        self.class_mod.obj_types[r] = sym.type.name
+                        cls = sym.type.name
+                        self.class_mod.obj_types[r] = cls
+                        if label:
+                            self.class_mod.global_obj_types[label] = cls
                     # limpiar metadata numérica/literal
                     self.temp_int.pop(r, None)
                     self.temp_string.pop(r, None)
@@ -433,7 +443,10 @@ class MIPSCodeGen:
                     self.ptr_table[r] = reg
                     self.temp_ptr[r] = reg
                     if hasattr(self, "class_mod") and hasattr(sym, "type") and sym.type:
-                        self.class_mod.obj_types[r] = sym.type.name
+                        cls = sym.type.name
+                        self.class_mod.obj_types[r] = cls
+                        if label:
+                            self.class_mod.global_obj_types[label] = cls
                     self.temp_int.pop(r, None)
                     self.temp_string.pop(r, None)
                     self.temp_float.pop(r, None)

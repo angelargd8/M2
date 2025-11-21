@@ -73,6 +73,11 @@ class MIPSFun:
             cg._load(this_temp, reg_this)
             cg.emit("    la $t9, this")
             cg.emit(f"    sw {reg_this}, 0($t9)")
+            # si se conoce el tipo dinámico del objeto, usarlo para el label
+            if hasattr(cg, "class_mod") and this_temp in cg.class_mod.obj_types:
+                dyn_cls = cg.class_mod.obj_types[this_temp]
+                _, meth = func_label.split(".", 1)
+                func_label = f"{dyn_cls}.{meth}"
 
         cg.emit(f"    jal {func_label}")
         if argc and argc > 0:

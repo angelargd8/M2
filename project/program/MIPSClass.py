@@ -16,6 +16,7 @@ class MIPSClass:
         self.cg = codegen
         self.tm = codegen.tm
         self.obj_types = {}  # temp -> class_name
+        self.global_obj_types = {}  # label -> class_name
         # reserva slot global para 'this'
         if "this: .word 0" not in self.cg.global_data:
             self.cg.global_data.append("this: .word 0")
@@ -100,6 +101,12 @@ class MIPSClass:
 
         offset = 0
         cls = self.obj_types.get(t_obj)
+        if not cls:
+            # intentar recuperar desde globales si el temporal viene de loadvar
+            for lbl, cls_name in self.global_obj_types.items():
+                if t_obj == lbl or cls_name:
+                    cls = cls_name
+                    break
         if cls:
             offset = self._get_offset(cls, prop_name)
         reg_obj = self._ensure_ptr_reg(t_obj)
