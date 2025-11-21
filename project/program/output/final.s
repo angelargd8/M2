@@ -4,9 +4,18 @@
 
 .data
 this: .word 0
-g_d: .word 0
-str_0: .asciiz "..."
-str_1: .asciiz "Woof"
+g_PI: .word 314
+g_greeting: .word str_3
+g_flag: .word 0
+g_numbers: .word 1, 2, 3, 4, 5
+g_matrix_row_0: .word 1, 2
+g_matrix_row_1: .word 3, 4
+g_matrix: .word g_matrix_row_0, g_matrix_row_1
+str_0: .asciiz "Hello world"
+str_1: .asciiz "Hello"
+str_2: .asciiz "Compiscript concat"
+str_3: .asciiz "Hello, Compiscript!"
+str_4: .asciiz "test"
 nl: .asciiz "\n"
 str_lbr: .asciiz "["
 str_rbr: .asciiz "]"
@@ -85,7 +94,7 @@ cs_its_done:
     addi $sp, $sp, 44
     jr $ra
 
-Animal.speak:
+main:
     addi $sp, $sp, -8
     sw $fp, 4($sp)
     sw $ra, 0($sp)
@@ -97,51 +106,254 @@ Animal.speak:
     la $a0, nl
     li $v0, 4
     syscall
-    # ---- EPILOG ----
-    move $sp, $fp
-    lw $ra, 0($sp)
-    lw $fp, 4($sp)
-    addi $sp, $sp, 8
-    jr $ra
-Dog.speak:
-    addi $sp, $sp, -8
-    sw $fp, 4($sp)
-    sw $ra, 0($sp)
-    move $fp, $sp
-    # print string (literal/global): str_1
-    la $a0, str_1
+    li $t0, 1
+    move $t0, $t0
+    move $a0, $t0
+    li $v0, 1
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    la $t1, str_1
+    la $t2, str_2
+    li $a0, 512
+    li $v0, 9
+    syscall
+    move $t3, $v0
+    move $t4, $t3
+concat_copy_a_t3_1:
+    lb $t5, 0($t1)
+    sb $t5, 0($t4)
+    beq $t5, $zero, concat_copy_b_t3_1
+    addi $t1, $t1, 1
+    addi $t4, $t4, 1
+    j concat_copy_a_t3_1
+concat_copy_b_t3_1:
+    lb $t5, 0($t2)
+    sb $t5, 0($t4)
+    beq $t5, $zero, concat_done_t3_1
+    addi $t2, $t2, 1
+    addi $t4, $t4, 1
+    j concat_copy_b_t3_1
+concat_done_t3_1:
+    sb $zero, 0($t4)
+    move $t6, $t3
+    # print dynamic string in t3
+    move $a0, $t6
     li $v0, 4
     syscall
     la $a0, nl
     li $v0, 4
     syscall
-    # ---- EPILOG ----
-    move $sp, $fp
-    lw $ra, 0($sp)
-    lw $fp, 4($sp)
-    addi $sp, $sp, 8
-    jr $ra
-main:
-    addi $sp, $sp, -8
-    sw $fp, 4($sp)
-    sw $ra, 0($sp)
-    move $fp, $sp
-    # newobj Dog -> t1
-    li $a0, 4
+    li $t6, 314
+    move $t6, $t6
+    la $t9, g_PI
+    sw $t6, 0($t9)
+    la $t6, str_3
+    la $t9, g_greeting
+    sw $t6, 0($t9)
+    # alloc_array size=5
+    li $a0, 24
     li $v0, 9
     syscall
-    move $t0, $v0
-    la $t9, g_d
-    sw $t0, 0($t9)
-    la $t1, g_d
-    lw $t1, 0($t1)
-    move $t1, $t1
-    addi $sp, $sp, -4
-    sw $t1, 0($sp)
-    move $t1, $t1
-    la $t9, this
-    sw $t1, 0($t9)
-    jal Dog.speak
-    move $t1, $v0
+    move $t6, $v0
+    li $t9, 5
+    sw $t9, 0($t6)
+    li $t7, 1
+    move $t8, $t7
+    # setidx t3[0] = t2
+    sw $t8, 4($t6)
+    li $t7, 2
+    move $t8, $t7
+    # setidx t3[1] = t2
+    sw $t8, 8($t6)
+    li $t7, 3
+    move $t8, $t7
+    # setidx t3[2] = t2
+    sw $t8, 12($t6)
+    li $t7, 4
+    move $t8, $t7
+    # setidx t3[3] = t2
+    sw $t8, 16($t6)
+    li $t7, 5
+    move $t8, $t7
+    # setidx t3[4] = t2
+    sw $t8, 20($t6)
+    la $t9, g_numbers
+    sw $t6, 0($t9)
+    # alloc_array size=2
+    li $a0, 12
+    li $v0, 9
+    syscall
+    move $t8, $v0
+    li $t9, 2
+    sw $t9, 0($t8)
+    # alloc_array size=2
+    li $a0, 12
+    li $v0, 9
+    syscall
+    move $t7, $v0
+    li $t9, 2
+    sw $t9, 0($t7)
+    li $t0, 1
+    move $t8, $t0
+    # setidx t2[0] = t1
+    sw $t8, 4($t7)
+    li $t0, 2
+    move $t8, $t0
+    # setidx t2[1] = t1
+    sw $t8, 8($t7)
+    move $t8, $t7
+    # setidx t3[0] = t2
+    sw $t8, 4($t8)
+    # alloc_array size=2
+    li $a0, 12
+    li $v0, 9
+    syscall
+    move $t7, $v0
+    li $t9, 2
+    sw $t9, 0($t7)
+    li $t0, 3
+    move $t8, $t0
+    # setidx t2[0] = t1
+    sw $t8, 4($t7)
+    li $t0, 4
+    move $t8, $t0
+    # setidx t2[1] = t1
+    sw $t8, 8($t7)
+    move $t8, $t7
+    # setidx t3[1] = t2
+    sw $t8, 8($t8)
+    la $t9, g_matrix
+    sw $t8, 0($t9)
+    la $t0, g_PI
+    lw $a0, 0($t0)
+    li $v0, 1
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    la $t0, g_greeting
+    lw $a0, 0($t0)
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    la $t0, g_flag
+    lw $a0, 0($t0)
+    li $v0, 1
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    # print 1D global array numbers
+    li $a0, 91
+    li $v0, 11
+    syscall
+    li $a0, 1
+    li $v0, 1
+    syscall
+    li $a0, 44
+    li $v0, 11
+    syscall
+    li $a0, 32
+    li $v0, 11
+    syscall
+    li $a0, 2
+    li $v0, 1
+    syscall
+    li $a0, 44
+    li $v0, 11
+    syscall
+    li $a0, 32
+    li $v0, 11
+    syscall
+    li $a0, 3
+    li $v0, 1
+    syscall
+    li $a0, 44
+    li $v0, 11
+    syscall
+    li $a0, 32
+    li $v0, 11
+    syscall
+    li $a0, 4
+    li $v0, 1
+    syscall
+    li $a0, 44
+    li $v0, 11
+    syscall
+    li $a0, 32
+    li $v0, 11
+    syscall
+    li $a0, 5
+    li $v0, 1
+    syscall
+    li $a0, 93
+    li $v0, 11
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    # print 2D global array matrix
+    li $a0, 91
+    li $v0, 11
+    syscall
+    li $a0, 91
+    li $v0, 11
+    syscall
+    li $a0, 1
+    li $v0, 1
+    syscall
+    li $a0, 44
+    li $v0, 11
+    syscall
+    li $a0, 32
+    li $v0, 11
+    syscall
+    li $a0, 2
+    li $v0, 1
+    syscall
+    li $a0, 93
+    li $v0, 11
+    syscall
+    li $a0, 44
+    li $v0, 11
+    syscall
+    li $a0, 32
+    li $v0, 11
+    syscall
+    li $a0, 91
+    li $v0, 11
+    syscall
+    li $a0, 3
+    li $v0, 1
+    syscall
+    li $a0, 44
+    li $v0, 11
+    syscall
+    li $a0, 32
+    li $v0, 11
+    syscall
+    li $a0, 4
+    li $v0, 1
+    syscall
+    li $a0, 93
+    li $v0, 11
+    syscall
+    li $a0, 93
+    li $v0, 11
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    # print string (literal/global): str_4
+    la $a0, str_4
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
     li $v0, 10
     syscall

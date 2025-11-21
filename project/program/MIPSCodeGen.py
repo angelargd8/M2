@@ -9,6 +9,7 @@ from MIPSArrays import MIPSArrays
 from MIPSFun import MIPSFun
 from MIPSOp import MIPSOp
 from MIPSSen import MIPSSen
+from MIPSLogic import MIPSLogic
 
 
 
@@ -47,6 +48,7 @@ class MIPSCodeGen:
         self.fun_mod = MIPSFun(self)
         self.sen_mod = MIPSSen(self)
         self.op_mod = MIPSOp(self)
+        self.logic_mod = MIPSLogic(self)
 
     def emit(self, line=""):
         self.lines.append(line)
@@ -262,6 +264,28 @@ class MIPSCodeGen:
                         self.temp_ptr.pop(r, None)
                         self.ptr_table.pop(r, None)
 
+                elif a == "true":
+                    if r in self.mutable_temps:
+                        reg_r = self.tm.get_reg(r)
+                        self.emit(f"    li {reg_r}, 1")
+                        self.temp_int.pop(r, None)
+                    else:
+                        self.temp_int[r] = 1
+                    self.temp_string.pop(r, None)
+                    self.temp_ptr.pop(r, None)
+                    self.ptr_table.pop(r, None)
+
+                elif a == "false":
+                    if r in self.mutable_temps:
+                        reg_r = self.tm.get_reg(r)
+                        self.emit(f"    li {reg_r}, 0")
+                        self.temp_int.pop(r, None)
+                    else:
+                        self.temp_int[r] = 0
+                    self.temp_string.pop(r, None)
+                    self.temp_ptr.pop(r, None)
+                    self.ptr_table.pop(r, None)
+
                 elif isinstance(a, str) and a in self.ptr_table:
                     reg = self.ptr_table[a]
                     self.ptr_table[r] = reg
@@ -361,10 +385,10 @@ class MIPSCodeGen:
                 self.op_mod.comparison(op, a, b, r)
 
             elif op in ["&&", "||"]:
-                self.op_mod.logical(op, a, b, r)
+                self.logic_mod.logical(op, a, b, r)
 
             elif op == "not":
-                self.op_mod.unary_not(a, r)
+                self.logic_mod.unary_not(a, r)
 
             elif op == "+":
 
@@ -480,6 +504,14 @@ class MIPSCodeGen:
         # 1) LITERALES NUMÉRICOS
         if isinstance(src, int) or (isinstance(src, str) and src.isdigit()):
             self.emit(f"    li {dst_reg}, {src}")
+            return
+
+        # booleanos
+        if src == "true":
+            self.emit(f"    li {dst_reg}, 1")
+            return
+        if src == "false":
+            self.emit(f"    li {dst_reg}, 0")
             return
 
         # 2) STRING LITERAL (temp_string)
