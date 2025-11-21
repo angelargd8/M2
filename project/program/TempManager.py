@@ -9,14 +9,15 @@ class TempManager:
         self.label_count = 0 
         self.temp_to_freg = {}
         self.pinned = set()    # temporales que no deben liberarse
-
-        # Registros disponibles
-        self.free_regs = [
+        self._base_free_regs = [
             "$t0", "$t1", "$t2", "$t3", "$t4",
             "$t5", "$t6", "$t7", "$t8", "$t9",
-            "$s0", "$s1", "$s2", "$s3",
-            "$s4", "$s5", "$s6", "$s7",
+            "$s0", "$s1", "$s2", "$s3", "$s4", "$s5", "$s6", "$s7",
+            "$a0", "$a1", "$a2", "$a3",
         ]
+
+        # Registros disponibles
+        self.free_regs = list(self._base_free_regs)
 
         self.free_fregs = [
             "$f0", "$f1", "$f2", "$f3", "$f4", "$f5",
@@ -76,6 +77,9 @@ class TempManager:
         self.pinned.discard(temp)
 
     def get_reg(self, temp):
+        return self._get_reg_internal(temp, avoid=None)
+
+    def _get_reg_internal(self, temp, avoid):
         """
         Retorna un registro MIPS para el temporal.
         Si no tiene, asigna uno disponible.
@@ -87,9 +91,20 @@ class TempManager:
         if temp in self.pinned:
             for i, reg in enumerate(self.free_regs):
                 if reg.startswith("$s"):
+                    if avoid and reg in avoid:
+                        continue
                     self.free_regs.pop(i)
                     self.temp_to_reg[temp] = reg
                     return reg
+
+        # elegir el primer registro que no esté en avoid
+        if avoid:
+            for i, reg in enumerate(self.free_regs):
+                if reg in avoid:
+                    continue
+                self.free_regs.pop(i)
+                self.temp_to_reg[temp] = reg
+                return reg
 
         if not self.free_regs:
             raise Exception("TempManager: no hay registros MIPS disponibles")
@@ -114,4 +129,10 @@ class TempManager:
         #Genera una etiqueta única (L1, L2, L3, ...)
         self.label_count += 1
         return f"L{self.label_count}"
+
+    def reset_regs(self):
+        """Reinicia asignaciones de registros (útil al entrar a una función)."""
+        self.free_regs = list(self._base_free_regs)
+        self.temp_to_reg.clear()
+        self.temp_to_freg.clear()
     

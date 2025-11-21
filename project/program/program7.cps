@@ -3,5 +3,5 @@ function printer(x: string): string{
 }
 
 let printear: string = (printer("hola"));
-print("este es un string: ");
-print(printear);
+print("este es un string: " +printear);
+//print(printear);

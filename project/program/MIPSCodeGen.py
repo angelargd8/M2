@@ -209,6 +209,14 @@ class MIPSCodeGen:
 
             # ---------- LABEL ----------
             if op == "label":
+                if a in self.func_labels:
+                    # al empezar función, limpiar registros/temporales previos
+                    self.tm.reset_regs()
+                    self.temp_string.clear()
+                    self.temp_int.clear()
+                    self.temp_ptr.clear()
+                    self.ptr_table.clear()
+                    self.temp_float.clear()
                 self.emit(f"{a}:")
                 if a in self.func_labels:
                     self.fun_mod.emit_prolog(a)
@@ -327,6 +335,11 @@ class MIPSCodeGen:
                         self._load(a, reg)
                     self.emit(f"    la $t9, {label}")
                     self.emit(f"    sw {reg}, 0($t9)")
+                    # Si era un puntero temporal, lo limpiamos para liberar el registro.
+                    if a in self.ptr_table:
+                        self.ptr_table.pop(a, None)
+                        self.temp_ptr.pop(a, None)
+                        self.tm.free_temp(a)
 
 
             elif op in ["-", "*", "/", "%"]:

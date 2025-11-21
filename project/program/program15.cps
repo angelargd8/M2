@@ -1,71 +1,75 @@
+// Global constants and variables
+const PI: integer = 314;
+let greeting: string = "Hello, Compiscript!";
+let flag: boolean;
+let numbers: integer[] = [1, 2, 3, 4, 5];
+let matrix: integer[][] = [[1, 2], [3, 4]];
 
-//while control secuence 
-print("==WHILE==");
-var i = 0;
-while (i < 5) {
-    print("i = " + i);
-    i = i + 1;
+// Simple closure-style function (no nested type signatures)
+function makeAdder(x: integer): integer {
+  return x + 1;
 }
 
-//for  control secuence 
-print("==FOR==");
+let addFive: integer = (makeAdder(5));
+print("5 + 1 = " + addFive);
 
-for (var j = 0; j < 4; j = j + 1) {
-    print("j = " + j);
+// Control structures
+if (addFive > 5) {
+  print("Greater than 5");
+} else {
+  print("5 or less");
 }
 
-//do-while control secuence 
-print("==do-while==");
-var k = 0;
+while (addFive < 10) {
+  addFive = addFive + 1;
+}
 
 do {
-    print("k = " + k);
-    k = k + 1;
-} while (k < 3);
+  print("Result is now " + addFive);
+  addFive = addFive - 1;
+} while (addFive > 7);
 
-// foreach control secuence 
-print("==foreach==");
-var nums = [1, 2, 3, 4];
-var total = 0;
-
-foreach (n in nums) {
-    total = total + n;
+for (let i: integer = 0; i < 3; i = i + 1) {
+  print("Loop index: " + i);
 }
 
-print("Total = " + total);
-
-// break and continue control secuence 
-print("==break - continue ==");
-
-for (var p = 0; p < 10; p = p + 1) {
-
-    if (p == 3) {
-        print("continue at p = 3");
-        continue;
-    }
-
-    if (p == 7) {
-        print("break at p = 7");
-        break;
-    }
-
-    print("p = " + p);
+foreach (n in numbers) {
+  if (n == 3) {
+    continue;
+  }
+  print("Number: " + n);
+  if (n > 4) {
+    break;
+  }
 }
 
-
-// switch and continue control secuence 
-print("==switch==");
-
-var day = 3;
-
-switch (day) {
-    case 1:
-        print("Monday");
-    case 2:
-        print("Tuesday");
-    case 3:
-        print("Wednesday");
-    default:
-        print("Unknown day");
+// Switch-case structure
+switch (addFive) {
+  case 7:
+    print("It's seven");
+  case 6:
+    print("It's six");
+  default:
+    print("Something else");
 }
 
+// Try-catch structure
+try {
+  let risky: integer = numbers[10];
+  print("Risky access: " + risky);
+} catch (err) {
+  print("Caught an error: " + err);
+}
+
+// Class definition and usage
+class Animal {
+  let name: string;
+
+  function constructor(name: string) {
+    this.name = name;
+  }
+
+  function speak(): string {
+    return this.name + " makes a sound.";
+  }
+}

@@ -58,11 +58,12 @@ class MIPSStrings:
         cid = self.counter
 
         # Pedimos registros a TempManager con nombres internos únicos
-        reg_a   = tm.get_reg(f"{r}_A")      # puntero a A
-        reg_b   = tm.get_reg(f"{r}_B")      # puntero a B
-        reg_base = tm.get_reg(f"{r}_BASE")  # base del nuevo buffer
-        reg_cur  = tm.get_reg(f"{r}_CUR")   # cursor dentro del buffer
-        reg_chr  = tm.get_reg(f"{r}_CHR")   # byte temporal
+        avoid_args = {"$a0", "$a1", "$a2", "$a3"}
+        reg_a   = tm._get_reg_internal(f"{r}_A", avoid=avoid_args)      # puntero a A
+        reg_b   = tm._get_reg_internal(f"{r}_B", avoid=avoid_args)      # puntero a B
+        reg_base = tm._get_reg_internal(f"{r}_BASE", avoid=avoid_args)  # base del nuevo buffer
+        reg_cur  = tm._get_reg_internal(f"{r}_CUR", avoid=avoid_args)   # cursor dentro del buffer
+        reg_chr  = tm._get_reg_internal(f"{r}_CHR", avoid=avoid_args)   # byte temporal
 
         # Cargar punteros de A y B
         self._load_str_ptr(a, reg_a)

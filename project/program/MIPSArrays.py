@@ -109,6 +109,9 @@ class MIPSArrays:
         index : entero (literal) o string de dígitos
         t_dst : temporal destino (guardamos el valor en un registro)
         """
+        oob_static = f"getidx_oob_static_{t_dst}"
+        oob_dyn = f"getidx_oob_dyn_{t_dst}"
+        done_lbl = f"getidx_done_{t_dst}"
         reg_arr = self._get_array_reg(t_arr)
         reg_dst = self.cg.tm.get_reg(t_dst)
 
@@ -116,21 +119,43 @@ class MIPSArrays:
         if self._is_int_like(index):
             idx = int(index)
             offset = (idx + 1) * 4
+            # bounds check: if idx >= length => reg_dst = 0
+            self.cg.emit(f"    lw $t9, 0({reg_arr})")
+            self.cg.emit(f"    li $t8, {idx}")
+            self.cg.emit(f"    bge $t8, $t9, {oob_static}")
             self.cg.emit(f"    # getidx {t_arr}[{idx}] -> {t_dst}")
             self.cg.emit(f"    lw {reg_dst}, {offset}({reg_arr})")
+            self.cg.emit(f"    j {done_lbl}")
         elif isinstance(index, str) and index in self.cg.temp_int:
             idx = int(self.cg.temp_int[index])
             offset = (idx + 1) * 4
+            self.cg.emit(f"    lw $t9, 0({reg_arr})")
+            self.cg.emit(f"    li $t8, {idx}")
+            self.cg.emit(f"    bge $t8, $t9, {oob_static}")
             self.cg.emit(f"    # getidx {t_arr}[{idx}] -> {t_dst}")
             self.cg.emit(f"    lw {reg_dst}, {offset}({reg_arr})")
+            self.cg.emit(f"    j {done_lbl}")
         else:
             # Índice dinámico: offset = (idx + 1) * 4
             reg_idx = self.cg.tm.get_reg(index)
             self.cg.emit(f"    # getidx {t_arr}[{index}] -> {t_dst} (dinámico)")
             self.cg.emit(f"    sll $t8, {reg_idx}, 2")   # idx * 4
             self.cg.emit("    addi $t8, $t8, 4")        # +4 para saltar length
+            self.cg.emit(f"    lw $t9, 0({reg_arr})")    # length
+            self.cg.emit(f"    move $t7, {reg_idx}")
+            self.cg.emit(f"    bge $t7, $t9, {oob_dyn}")
             self.cg.emit(f"    add $t8, {reg_arr}, $t8")
             self.cg.emit(f"    lw {reg_dst}, 0($t8)")
+            self.cg.emit(f"    j {done_lbl}")
+
+        # fallback para oob: setear 0
+        # Para ramas estáticas y dinámicas usamos etiquetas únicas
+        self.cg.emit(f"{oob_static}:")
+        self.cg.emit(f"    li {reg_dst}, 0")
+        self.cg.emit(f"    j {done_lbl}")
+        self.cg.emit(f"{oob_dyn}:")
+        self.cg.emit(f"    li {reg_dst}, 0")
+        self.cg.emit(f"{done_lbl}:")
 
         # marcamos t_dst como "entero runtime" para que print_int_reg pueda usarlo
         self.cg.temp_int.pop(t_dst, None)  # valor dinámico, no constante
