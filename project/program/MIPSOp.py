@@ -67,12 +67,33 @@ class MIPSOp:
                 self.gen.emit(f"    sub {rr}, {ra}, {rb}")
             elif op == "*":
                 self.gen.emit(f"    mul {rr}, {ra}, {rb}")
-            elif op == "/":
+            elif op in ("/", "%"):
+                lbl_id = self.tm.newLabel()
+                err_lbl = f"DZ_ERR_{lbl_id}"
+                ok_lbl = f"DZ_OK_{lbl_id}"
+                jmp_lbl = f"DZ_JMP_{lbl_id}"
+                # check divisor zero
+                self.gen.emit(f"    beq {rb}, $zero, {err_lbl}")
                 self.gen.emit(f"    div {ra}, {rb}")
-                self.gen.emit(f"    mflo {rr}")
-            elif op == "%":
-                self.gen.emit(f"    div {ra}, {rb}")
-                self.gen.emit(f"    mfhi {rr}")
+                if op == "/":
+                    self.gen.emit(f"    mflo {rr}")
+                else:
+                    self.gen.emit(f"    mfhi {rr}")
+                self.gen.emit(f"    j {ok_lbl}")
+                # handler: set exc_value y saltar al handler
+                self.gen.emit(f"{err_lbl}:")
+                self.gen.emit("    la $t8, str_div_zero")
+                self.gen.emit("    la $t9, exc_value")
+                self.gen.emit("    sw $t8, 0($t9)")
+                self.gen.emit("    la $t9, exc_handler")
+                self.gen.emit("    lw $t9, 0($t9)")
+                self.gen.emit(f"    beq $t9, $zero, {jmp_lbl}")
+                self.gen.emit("    jr $t9")
+                self.gen.emit(f"{jmp_lbl}:")
+                # sin handler -> terminar
+                self.gen.emit("    li $v0, 10")
+                self.gen.emit("    syscall")
+                self.gen.emit(f"{ok_lbl}:")
             else:
                 raise Exception("Operador entero no soportado: " + op)
 

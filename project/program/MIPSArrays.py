@@ -139,13 +139,13 @@ class MIPSArrays:
             # Índice dinámico: offset = (idx + 1) * 4
             reg_idx = self.cg.tm.get_reg(index)
             self.cg.emit(f"    # getidx {t_arr}[{index}] -> {t_dst} (dinámico)")
-            self.cg.emit(f"    sll $t8, {reg_idx}, 2")   # idx * 4
-            self.cg.emit("    addi $t8, $t8, 4")        # +4 para saltar length
-            self.cg.emit(f"    lw $t9, 0({reg_arr})")    # length
+            self.cg.emit(f"    sll $t6, {reg_idx}, 2")   # idx * 4
+            self.cg.emit("    addi $t6, $t6, 4")        # +4 para saltar length
+            self.cg.emit(f"    lw $t8, 0({reg_arr})")    # length en t8
             self.cg.emit(f"    move $t7, {reg_idx}")
-            self.cg.emit(f"    bge $t7, $t9, {oob_dyn}")
-            self.cg.emit(f"    add $t8, {reg_arr}, $t8")
-            self.cg.emit(f"    lw {reg_dst}, 0($t8)")
+            self.cg.emit(f"    bge $t7, $t8, {oob_dyn}")
+            self.cg.emit(f"    add $t6, {reg_arr}, $t6")
+            self.cg.emit(f"    lw {reg_dst}, 0($t6)")
             self.cg.emit(f"    j {done_lbl}")
 
         # fallback para oob: setear 0

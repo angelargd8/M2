@@ -10,6 +10,7 @@ from MIPSFun import MIPSFun
 from MIPSOp import MIPSOp
 from MIPSSen import MIPSSen
 from MIPSLogic import MIPSLogic
+from MIPSTC import MIPSTC
 
 
 
@@ -49,6 +50,7 @@ class MIPSCodeGen:
         self.sen_mod = MIPSSen(self)
         self.op_mod = MIPSOp(self)
         self.logic_mod = MIPSLogic(self)
+        self.tc_mod = MIPSTC(self)
 
     def emit(self, line=""):
         self.lines.append(line)
@@ -106,6 +108,10 @@ class MIPSCodeGen:
         # variables globales (llenadas desde MIPSVar.register_global)
         for line in self.global_data:
             self.emit(line)
+        # soporte try/catch
+        self.emit("exc_handler: .word 0")
+        self.emit("exc_value: .word 0")
+        self.emit('str_div_zero: .asciiz "division by zero"')
 
         # strings literales
         for label, text in self.string_pool.items():
@@ -417,6 +423,14 @@ class MIPSCodeGen:
                 self.class_mod.set_prop(a, b, r)
             elif op == "getprop":
                 self.class_mod.get_prop(a, b, r)
+
+            # ---------- TRY / CATCH ----------
+            elif op == "push_handler":
+                self.tc_mod.push_handler(a)
+            elif op == "pop_handler":
+                self.tc_mod.pop_handler()
+            elif op == "get_exception":
+                self.tc_mod.get_exception(r)
 
             # sentencias de control
             elif op == "iftrue_goto":
