@@ -133,7 +133,7 @@ class MIPSArrays:
             self.cg.emit(f"    lw {reg_dst}, 0($t8)")
 
         # marcamos t_dst como "entero runtime" para que print_int_reg pueda usarlo
-        self.cg.temp_int[t_dst] = 0  # valor simbólico
+        self.cg.temp_int.pop(t_dst, None)  # valor dinámico, no constante
 
     # ----------------- array_length -----------------
 
@@ -148,4 +148,4 @@ class MIPSArrays:
         self.cg.emit(f"    lw {reg_dst}, 0({reg_arr})")
 
         # marcar como entero (longitud)
-        self.cg.temp_int[t_dst] = 0
+        self.cg.temp_int.pop(t_dst, None)

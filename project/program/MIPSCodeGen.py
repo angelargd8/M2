@@ -320,8 +320,11 @@ class MIPSCodeGen:
 
                 else:
                     # int / bool / string pointer
-                    reg = self.tm.get_reg(a)
-                    self._load(a, reg)
+                    if a in self.ptr_table:
+                        reg = self.ptr_table[a]
+                    else:
+                        reg = self.tm.get_reg(a)
+                        self._load(a, reg)
                     self.emit(f"    la $t9, {label}")
                     self.emit(f"    sw {reg}, 0($t9)")
 

@@ -3,9 +3,18 @@
 # ===== Compiscript Program =====
 
 .data
-g_printear: .word 0
-str_0: .asciiz "hola"
-str_1: .asciiz "este es un string: "
+g_addFive: .word 0
+g_restar: .word 0
+g_multiplicar: .word 0
+g_dividir: .float 0.0
+str_0: .asciiz "==SUMA=="
+str_1: .asciiz "5 + 2 = "
+str_2: .asciiz "==RESTA=="
+str_3: .asciiz "5 - 2 = "
+str_4: .asciiz "==MULTIPLICACION=="
+str_5: .asciiz "5 * 2 = "
+str_6: .asciiz "==DIVISION=="
+str_7: .asciiz "5 / 2 = "
 nl: .asciiz "\n"
 str_lbr: .asciiz "["
 str_rbr: .asciiz "]"
@@ -84,12 +93,89 @@ cs_its_done:
     addi $sp, $sp, 44
     jr $ra
 
-printer:
+makeAdder:
     addi $sp, $sp, -8
     sw $fp, 4($sp)
     sw $ra, 0($sp)
     move $fp, $sp
     lw $t0, 8($fp)
+    li $t1, 2
+    move $t0, $t0
+    move $t1, $t1
+    add $t2, $t0, $t1
+    move $t2, $t2
+    move $v0, $t2
+    # ---- EPILOG ----
+    move $sp, $fp
+    lw $ra, 0($sp)
+    lw $fp, 4($sp)
+    addi $sp, $sp, 8
+    jr $ra
+    # ---- EPILOG ----
+    move $sp, $fp
+    lw $ra, 0($sp)
+    lw $fp, 4($sp)
+    addi $sp, $sp, 8
+    jr $ra
+RESTA:
+    addi $sp, $sp, -8
+    sw $fp, 4($sp)
+    sw $ra, 0($sp)
+    move $fp, $sp
+    lw $t2, 8($fp)
+    li $t1, 2
+    move $t2, $t2
+    move $t1, $t1
+    sub $t0, $t2, $t1
+    move $t0, $t0
+    move $v0, $t0
+    # ---- EPILOG ----
+    move $sp, $fp
+    lw $ra, 0($sp)
+    lw $fp, 4($sp)
+    addi $sp, $sp, 8
+    jr $ra
+    # ---- EPILOG ----
+    move $sp, $fp
+    lw $ra, 0($sp)
+    lw $fp, 4($sp)
+    addi $sp, $sp, 8
+    jr $ra
+MULTIPLICACION:
+    addi $sp, $sp, -8
+    sw $fp, 4($sp)
+    sw $ra, 0($sp)
+    move $fp, $sp
+    lw $t0, 8($fp)
+    li $t1, 2
+    move $t0, $t0
+    move $t1, $t1
+    mul $t2, $t0, $t1
+    move $t2, $t2
+    move $v0, $t2
+    # ---- EPILOG ----
+    move $sp, $fp
+    lw $ra, 0($sp)
+    lw $fp, 4($sp)
+    addi $sp, $sp, 8
+    jr $ra
+    # ---- EPILOG ----
+    move $sp, $fp
+    lw $ra, 0($sp)
+    lw $fp, 4($sp)
+    addi $sp, $sp, 8
+    jr $ra
+DIVISION:
+    addi $sp, $sp, -8
+    sw $fp, 4($sp)
+    sw $ra, 0($sp)
+    move $fp, $sp
+    lw $t2, 8($fp)
+    li $t1, 2
+    move $t2, $t2
+    move $t1, $t1
+    div $t2, $t1
+    mflo $t0
     move $t0, $t0
     move $v0, $t0
     # ---- EPILOG ----
@@ -109,14 +195,22 @@ main:
     sw $fp, 4($sp)
     sw $ra, 0($sp)
     move $fp, $sp
-    la $t0, str_0
+    # print string (literal/global): str_0
+    la $a0, str_0
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    li $t0, 5
+    move $t0, $t0
     addi $sp, $sp, -4
     sw $t0, 0($sp)
-    jal printer
+    jal makeAdder
     addi $sp, $sp, 4
     move $t0, $v0
     move $t0, $t0
-    la $t9, g_printear
+    la $t9, g_addFive
     sw $t0, 0($t9)
     # print string (literal/global): str_1
     la $a0, str_1
@@ -125,9 +219,104 @@ main:
     la $a0, nl
     li $v0, 4
     syscall
-    la $t0, g_printear
+    la $t0, g_addFive
     lw $a0, 0($t0)
+    li $v0, 1
+    syscall
+    la $a0, nl
     li $v0, 4
+    syscall
+    # print string (literal/global): str_2
+    la $a0, str_2
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    li $t0, 5
+    move $t0, $t0
+    addi $sp, $sp, -4
+    sw $t0, 0($sp)
+    jal RESTA
+    addi $sp, $sp, 4
+    move $t0, $v0
+    move $t0, $t0
+    la $t9, g_restar
+    sw $t0, 0($t9)
+    # print string (literal/global): str_3
+    la $a0, str_3
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    la $t0, g_restar
+    lw $a0, 0($t0)
+    li $v0, 1
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    # print string (literal/global): str_4
+    la $a0, str_4
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    li $t0, 5
+    move $t0, $t0
+    addi $sp, $sp, -4
+    sw $t0, 0($sp)
+    jal MULTIPLICACION
+    addi $sp, $sp, 4
+    move $t0, $v0
+    move $t0, $t0
+    la $t9, g_multiplicar
+    sw $t0, 0($t9)
+    # print string (literal/global): str_5
+    la $a0, str_5
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    la $t0, g_multiplicar
+    lw $a0, 0($t0)
+    li $v0, 1
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    # print string (literal/global): str_6
+    la $a0, str_6
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    li $t0, 5
+    move $t0, $t0
+    addi $sp, $sp, -4
+    sw $t0, 0($sp)
+    jal DIVISION
+    addi $sp, $sp, 4
+    move $t0, $v0
+    move $t0, $t0
+    mtc1 $t0, $f0
+    cvt.s.w $f0, $f0
+    la $t9, g_dividir
+    s.s $f0, 0($t9)
+    # print string (literal/global): str_7
+    la $a0, str_7
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    la $t0, g_dividir
+    l.s $f12, 0($t0)
+    li $v0, 2
     syscall
     la $a0, nl
     li $v0, 4
