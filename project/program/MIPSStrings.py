@@ -9,6 +9,7 @@ class MIPSStrings:
     def __init__(self, cg):
         self.cg = cg          # referencia al MIPSCodeGen
         self.tm = cg.tm       # TempManager
+        self.counter = 0      # para generar etiquetas únicas por concatenación
 
     # -------------------------------------------------------------
     # Cargar puntero del string (literal, dinámico o global)
@@ -53,6 +54,8 @@ class MIPSStrings:
     def concat_strings(self, a, b, r):
         cg = self.cg
         tm = self.tm
+        self.counter += 1
+        cid = self.counter
 
         # Pedimos registros a TempManager con nombres internos únicos
         reg_a   = tm.get_reg(f"{r}_A")      # puntero a A
@@ -73,9 +76,9 @@ class MIPSStrings:
         cg.emit(f"    move {reg_cur}, {reg_base}")
 
         # Etiquetas únicas por temporal destino r
-        label_copy_a = f"concat_copy_a_{r}"
-        label_copy_b = f"concat_copy_b_{r}"
-        label_done   = f"concat_done_{r}"
+        label_copy_a = f"concat_copy_a_{r}_{cid}"
+        label_copy_b = f"concat_copy_b_{r}_{cid}"
+        label_done   = f"concat_done_{r}_{cid}"
 
         # Copiar A
         cg.emit(f"{label_copy_a}:")
