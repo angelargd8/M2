@@ -40,8 +40,11 @@ class MIPSTC:
         self.cg.emit("    # get_exception")
         self.cg.emit("    la $t9, exc_value")
         self.cg.emit(f"    lw {reg}, 0($t9)")
-        self.cg.temp_ptr[t_dst] = reg
-        self.cg.ptr_table[t_dst] = reg
+        # guardar copia en exc_tmp para impresiones posteriores
+        self.cg.emit("    la $t8, exc_tmp")
+        self.cg.emit(f"    sw {reg}, 0($t8)")
+        # marcarlo como entero (no puntero)
         self.cg.temp_int.pop(t_dst, None)
         self.cg.temp_ptr.pop(t_dst, None)
+        self.cg.ptr_table.pop(t_dst, None)
         self.cg.temp_string.pop(t_dst, None)

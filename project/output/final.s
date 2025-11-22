@@ -4,17 +4,17 @@
 
 .data
 this: .word 0
-g_num: .word 1
-g_num2: .word 2
-g_result: .word 0
 exc_handler: .word 0
 exc_value: .word 0
 str_div_zero: .asciiz "division by zero"
+str_0: .asciiz "Trying risky operation"
+str_1: .asciiz "Caught exception: "
 nl: .asciiz "\n"
 str_lbr: .asciiz "["
 str_rbr: .asciiz "]"
 str_comma: .asciiz ", "
 str_array: .asciiz "[array]"
+exc_tmp: .word 0
 
 .text
 .globl main
@@ -93,11 +93,12 @@ cs_its_done:
     addi $sp, $sp, 44
     jr $ra
 
-fn_add:
+risky:
     addi $sp, $sp, -8
     sw $fp, 4($sp)
     sw $ra, 0($sp)
     move $fp, $sp
+    addi $sp, $sp, -16
     addi $sp, $sp, -32
     sw $s0, 0($sp)
     sw $s1, 4($sp)
@@ -107,14 +108,98 @@ fn_add:
     sw $s5, 20($sp)
     sw $s6, 24($sp)
     sw $s7, 28($sp)
-    lw $t0, 8($fp)
-    lw $t1, 12($fp)
+    # push_handler L1
+    la $t9, exc_handler
+    la $t8, L1
+    sw $t8, 0($t9)
+    # print string (literal/global): str_0
+    la $a0, str_0
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    li $t0, 10
+    li $t1, 0
     move $t0, $t0
     move $t1, $t1
-    add $t2, $t0, $t1
+    beq $t1, $zero, DZ_ERR_L1
+    div $t0, $t1
+    mflo $t2
+    j DZ_OK_L1
+DZ_ERR_L1:
+    la $t8, str_div_zero
+    la $t9, exc_value
+    sw $t8, 0($t9)
+    la $t9, exc_handler
+    lw $t9, 0($t9)
+    beq $t9, $zero, DZ_JMP_L1
+    jr $t9
+DZ_JMP_L1:
+    li $v0, 10
+    syscall
+DZ_OK_L1:
     move $t2, $t2
-    move $v0, $t2
-fn_add_epilog:
+    sw $t2, -4($fp)
+    # pop_handler
+    la $t9, exc_handler
+    sw $zero, 0($t9)
+    la $t9, exc_value
+    sw $zero, 0($t9)
+    j L2
+L1:
+    # get_exception
+    la $t9, exc_value
+    lw $t2, 0($t9)
+    la $t8, exc_tmp
+    sw $t2, 0($t8)
+    move $t2, $t2
+    # fallback store to exc_tmp (addr e)
+    la $t9, exc_tmp
+    sw $t2, 0($t9)
+    la $t9, exc_tmp
+    lw $t0, 0($t9)
+    move $t0, $t0
+    addi $sp, $sp, -4
+    sw $a0, 0($sp)
+    move $a0, $t0
+    jal cs_int_to_string
+    lw $a0, 0($sp)
+    addi $sp, $sp, 4
+    move $t3, $v0
+    la $t4, str_1
+    move $t5, $t3
+    li $a0, 512
+    li $v0, 9
+    syscall
+    move $t6, $v0
+    move $t7, $t6
+concat_copy_a_t4_1:
+    lb $t8, 0($t4)
+    sb $t8, 0($t7)
+    beq $t8, $zero, concat_copy_b_t4_1
+    addi $t4, $t4, 1
+    addi $t7, $t7, 1
+    j concat_copy_a_t4_1
+concat_copy_b_t4_1:
+    lb $t8, 0($t5)
+    sb $t8, 0($t7)
+    beq $t8, $zero, concat_done_t4_1
+    addi $t5, $t5, 1
+    addi $t7, $t7, 1
+    j concat_copy_b_t4_1
+concat_done_t4_1:
+    sb $zero, 0($t7)
+    move $t3, $t6
+    # print dynamic string in t4
+    move $a0, $t3
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+L2:
+risky_epilog:
     # ---- EPILOG ----
     lw $s0, 0($sp)
     lw $s1, 4($sp)
@@ -125,12 +210,12 @@ fn_add_epilog:
     lw $s6, 24($sp)
     lw $s7, 28($sp)
     addi $sp, $sp, 32
+    addi $sp, $sp, 16
     lw $ra, 0($sp)
     lw $fp, 4($sp)
     addi $sp, $sp, 8
     beq $ra, $zero, __program_exit
     jr $ra
-    j fn_add_epilog
 main:
     addi $sp, $sp, -8
     sw $fp, 4($sp)
@@ -145,35 +230,7 @@ main:
     sw $s5, 20($sp)
     sw $s6, 24($sp)
     sw $s7, 28($sp)
-    li $t0, 1
-    move $t0, $t0
-    la $t9, g_num
-    sw $t0, 0($t9)
-    li $t0, 2
-    move $t0, $t0
-    la $t9, g_num2
-    sw $t0, 0($t9)
-    la $t0, g_num
-    lw $t0, 0($t0)
-    la $t1, g_num2
-    lw $t1, 0($t1)
-    move $t0, $t0
-    addi $sp, $sp, -4
-    sw $t0, 0($sp)
-    move $t1, $t1
-    addi $sp, $sp, -4
-    sw $t1, 0($sp)
-    jal fn_add
-    addi $sp, $sp, 8
-    move $t1, $v0
-    la $t9, g_result
-    sw $t1, 0($t9)
-    la $t0, g_result
-    lw $a0, 0($t0)
-    li $v0, 1
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
+    jal risky
+    move $t0, $v0
     li $v0, 10
     syscall

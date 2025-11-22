@@ -169,6 +169,8 @@ class MIPSCodeGen:
         self.emit('str_rbr: .asciiz "]"')
         self.emit('str_comma: .asciiz ", "')
         self.emit('str_array: .asciiz "[array]"')
+        # buffer para excepciones (valor de get_exception)
+        self.emit("exc_tmp: .word 0")
         self.emit("")
 
     # ==========================================================
@@ -395,7 +397,16 @@ class MIPSCodeGen:
 
             # ---------- LOAD / STORE FP[...] ----------
             elif op == "load":
-                self._load_from_addr(a, self.tm.get_reg(r))
+                reg_r = self.tm.get_reg(r)
+                if a is None:
+                    # carga nula (p.ej. catch sin valor): devolver exc_tmp
+                    self.emit("    la $t9, exc_tmp")
+                    self.emit(f"    lw {reg_r}, 0($t9)")
+                    self.temp_int.pop(r, None)
+                    self.temp_ptr.pop(r, None)
+                    self.temp_string.pop(r, None)
+                else:
+                    self._load_from_addr(a, reg_r)
 
             elif op == "store":
                 self._store_to_addr(a, r)
@@ -686,14 +697,22 @@ class MIPSCodeGen:
         reg_val = self.tm.get_reg(value)
         self._load(value, reg_val)
 
-        if addr.startswith("FP["):
+        if isinstance(addr, str) and addr.startswith("FP["):
             raw = int(addr[3:-1])
             offset = -(raw + 4) if raw < 8 else raw
             self.emit(f"    sw {reg_val}, {offset}($fp)")
-        else:
-            # global
+            return
+
+        # global o fallback
+        if isinstance(addr, str) and addr in self.symtab.global_scope.symbols:
             self.emit(f"    la $t9, {addr}")
             self.emit(f"    sw {reg_val}, 0($t9)")
+            return
+
+        # Fallback: usar exc_tmp para variables de catch sin símbolo global
+        self.emit(f"    # fallback store to exc_tmp (addr {addr})")
+        self.emit("    la $t9, exc_tmp")
+        self.emit(f"    sw {reg_val}, 0($t9)")
 
     def _is_string(self, t):
         return (

@@ -42,6 +42,7 @@ str_lbr: .asciiz "["
 str_rbr: .asciiz "]"
 str_comma: .asciiz ", "
 str_array: .asciiz "[array]"
+exc_tmp: .word 0
 
 .text
 .globl main
@@ -1085,8 +1086,19 @@ L23:
     # get_exception
     la $t9, exc_value
     lw $s0, 0($t9)
+    la $t8, exc_tmp
+    sw $s0, 0($t8)
+    move $t0, $s0
+    move $t0, $t0
+    addi $sp, $sp, -4
+    sw $a0, 0($sp)
+    move $a0, $t0
+    jal cs_int_to_string
+    lw $a0, 0($sp)
+    addi $sp, $sp, 4
+    move $a1, $v0
     la $s1, str_13
-    move $s2, $s0
+    move $s2, $a1
     li $a0, 512
     li $v0, 9
     syscall
