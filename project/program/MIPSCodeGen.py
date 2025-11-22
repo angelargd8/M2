@@ -35,6 +35,7 @@ class MIPSCodeGen:
 
         # funciones conocidas (para decidir prolog/epilog)
         self.func_labels = set()
+        self.func_label_map = {}
         # temporales que se escriben más de una vez (no tratarlos como constantes)
         self.mutable_temps = set()
         # conteo de usos para liberar registros cuando un temp ya no se usa
@@ -270,6 +271,8 @@ class MIPSCodeGen:
 
             # ---------- LABEL ----------
             if op == "label":
+                if a in self.func_label_map:
+                    a = self.func_label_map[a]
                 if a in self.func_labels:
                     # al empezar función, limpiar registros/temporales previos
                     self.tm.reset_regs()
@@ -552,11 +555,23 @@ class MIPSCodeGen:
     # LABELS DE FUNCIONES
     # ==========================================================
     def _collect_function_labels(self):
+        reserved = {
+            "add","sub","mul","div","and","or","nor","xor","sll","srl","sra",
+            "addi","andi","ori","xori","slti","lw","sw","lb","sb","j","jr","jal",
+            "beq","bne","lui","mfhi","mflo","syscall"
+        }
+        self.func_label_map.clear()
+        # main
+        self.func_label_map["main"] = "main"
         self.func_labels.add("main")
         for name, sym in self.symtab.global_scope.symbols.items():
             if isinstance(sym, FunctionSymbol):
-                label = sym.label or sym.name
-                self.func_labels.add(label)
+                safe_label = sym.label or sym.name
+                if safe_label in reserved:
+                    safe_label = f"fn_{safe_label}"
+                    sym.label = safe_label
+                self.func_label_map[name] = safe_label
+                self.func_labels.add(safe_label)
 
     def _collect_frame_needs(self):
         current_func = None

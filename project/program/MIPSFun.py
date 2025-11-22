@@ -103,6 +103,9 @@ class MIPSFun:
                 _, meth = func_label.split(".", 1)
                 func_label = f"{dyn_cls}.{meth}"
 
+        # aplicar mangle seguro si existe
+        func_label = cg.func_label_map.get(func_label, func_label)
+
         cg.emit(f"    jal {func_label}")
         if argc and argc > 0:
             cg.emit(f"    addi $sp, $sp, {4 * argc}")

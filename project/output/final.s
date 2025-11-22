@@ -4,13 +4,12 @@
 
 .data
 this: .word 0
-g_dog: .word 0
+g_num: .word 1
+g_num2: .word 2
+g_result: .word 0
 exc_handler: .word 0
 exc_value: .word 0
 str_div_zero: .asciiz "division by zero"
-str_0: .asciiz " makes a sound."
-str_1: .asciiz " barks."
-str_2: .asciiz "Rex"
 nl: .asciiz "\n"
 str_lbr: .asciiz "["
 str_rbr: .asciiz "]"
@@ -94,7 +93,7 @@ cs_its_done:
     addi $sp, $sp, 44
     jr $ra
 
-Animal.constructor:
+fn_add:
     addi $sp, $sp, -8
     sw $fp, 4($sp)
     sw $ra, 0($sp)
@@ -109,13 +108,13 @@ Animal.constructor:
     sw $s6, 24($sp)
     sw $s7, 28($sp)
     lw $t0, 8($fp)
-    la $t1, this
-    lw $t1, 0($t1)
+    lw $t1, 12($fp)
+    move $t0, $t0
     move $t1, $t1
-    move $t0, $t0
-    # setprop name
-    sw $t0, 0($t1)
-Animal.constructor_epilog:
+    add $t2, $t0, $t1
+    move $t2, $t2
+    move $v0, $t2
+fn_add_epilog:
     # ---- EPILOG ----
     lw $s0, 0($sp)
     lw $s1, 4($sp)
@@ -131,130 +130,7 @@ Animal.constructor_epilog:
     addi $sp, $sp, 8
     beq $ra, $zero, __program_exit
     jr $ra
-Animal.speak:
-    addi $sp, $sp, -8
-    sw $fp, 4($sp)
-    sw $ra, 0($sp)
-    move $fp, $sp
-    addi $sp, $sp, -32
-    sw $s0, 0($sp)
-    sw $s1, 4($sp)
-    sw $s2, 8($sp)
-    sw $s3, 12($sp)
-    sw $s4, 16($sp)
-    sw $s5, 20($sp)
-    sw $s6, 24($sp)
-    sw $s7, 28($sp)
-    la $t0, this
-    lw $t0, 0($t0)
-    move $t0, $t0
-    # getprop name -> t2
-    lw $t1, 0($t0)
-    move $t2, $t1
-    la $t3, str_0
-    li $a0, 512
-    li $v0, 9
-    syscall
-    move $t4, $v0
-    move $t5, $t4
-concat_copy_a_t3_1:
-    lb $t6, 0($t2)
-    sb $t6, 0($t5)
-    beq $t6, $zero, concat_copy_b_t3_1
-    addi $t2, $t2, 1
-    addi $t5, $t5, 1
-    j concat_copy_a_t3_1
-concat_copy_b_t3_1:
-    lb $t6, 0($t3)
-    sb $t6, 0($t5)
-    beq $t6, $zero, concat_done_t3_1
-    addi $t3, $t3, 1
-    addi $t5, $t5, 1
-    j concat_copy_b_t3_1
-concat_done_t3_1:
-    sb $zero, 0($t5)
-    move $t7, $t4
-    move $t7, $t7
-    move $v0, $t7
-Animal.speak_epilog:
-    # ---- EPILOG ----
-    lw $s0, 0($sp)
-    lw $s1, 4($sp)
-    lw $s2, 8($sp)
-    lw $s3, 12($sp)
-    lw $s4, 16($sp)
-    lw $s5, 20($sp)
-    lw $s6, 24($sp)
-    lw $s7, 28($sp)
-    addi $sp, $sp, 32
-    lw $ra, 0($sp)
-    lw $fp, 4($sp)
-    addi $sp, $sp, 8
-    beq $ra, $zero, __program_exit
-    jr $ra
-    j Animal.speak_epilog
-Dog.speak:
-    addi $sp, $sp, -8
-    sw $fp, 4($sp)
-    sw $ra, 0($sp)
-    move $fp, $sp
-    addi $sp, $sp, -32
-    sw $s0, 0($sp)
-    sw $s1, 4($sp)
-    sw $s2, 8($sp)
-    sw $s3, 12($sp)
-    sw $s4, 16($sp)
-    sw $s5, 20($sp)
-    sw $s6, 24($sp)
-    sw $s7, 28($sp)
-    la $t0, this
-    lw $t0, 0($t0)
-    move $t0, $t0
-    # getprop name -> t1
-    lw $t1, 0($t0)
-    move $t2, $t1
-    la $t3, str_1
-    li $a0, 512
-    li $v0, 9
-    syscall
-    move $t4, $v0
-    move $t5, $t4
-concat_copy_a_t2_2:
-    lb $t6, 0($t2)
-    sb $t6, 0($t5)
-    beq $t6, $zero, concat_copy_b_t2_2
-    addi $t2, $t2, 1
-    addi $t5, $t5, 1
-    j concat_copy_a_t2_2
-concat_copy_b_t2_2:
-    lb $t6, 0($t3)
-    sb $t6, 0($t5)
-    beq $t6, $zero, concat_done_t2_2
-    addi $t3, $t3, 1
-    addi $t5, $t5, 1
-    j concat_copy_b_t2_2
-concat_done_t2_2:
-    sb $zero, 0($t5)
-    move $t7, $t4
-    move $t7, $t7
-    move $v0, $t7
-Dog.speak_epilog:
-    # ---- EPILOG ----
-    lw $s0, 0($sp)
-    lw $s1, 4($sp)
-    lw $s2, 8($sp)
-    lw $s3, 12($sp)
-    lw $s4, 16($sp)
-    lw $s5, 20($sp)
-    lw $s6, 24($sp)
-    lw $s7, 28($sp)
-    addi $sp, $sp, 32
-    lw $ra, 0($sp)
-    lw $fp, 4($sp)
-    addi $sp, $sp, 8
-    beq $ra, $zero, __program_exit
-    jr $ra
-    j Dog.speak_epilog
+    j fn_add_epilog
 main:
     addi $sp, $sp, -8
     sw $fp, 4($sp)
@@ -269,29 +145,32 @@ main:
     sw $s5, 20($sp)
     sw $s6, 24($sp)
     sw $s7, 28($sp)
-    # newobj Dog -> t3
-    li $a0, 8
-    li $v0, 9
-    syscall
-    move $t0, $v0
-    la $t1, str_2
-    # setprop name
-    sw $t1, 0($t0)
-    la $t9, g_dog
+    li $t0, 1
+    move $t0, $t0
+    la $t9, g_num
     sw $t0, 0($t9)
-    la $t2, g_dog
-    lw $t2, 0($t2)
-    move $t2, $t2
+    li $t0, 2
+    move $t0, $t0
+    la $t9, g_num2
+    sw $t0, 0($t9)
+    la $t0, g_num
+    lw $t0, 0($t0)
+    la $t1, g_num2
+    lw $t1, 0($t1)
+    move $t0, $t0
     addi $sp, $sp, -4
-    sw $t2, 0($sp)
-    move $t2, $t2
-    la $t9, this
-    sw $t2, 0($t9)
-    jal Dog.speak
-    move $t2, $v0
-    # print dynamic string in t3
-    move $a0, $t2
-    li $v0, 4
+    sw $t0, 0($sp)
+    move $t1, $t1
+    addi $sp, $sp, -4
+    sw $t1, 0($sp)
+    jal fn_add
+    addi $sp, $sp, 8
+    move $t1, $v0
+    la $t9, g_result
+    sw $t1, 0($t9)
+    la $t0, g_result
+    lw $a0, 0($t0)
+    li $v0, 1
     syscall
     la $a0, nl
     li $v0, 4
