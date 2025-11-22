@@ -1,4 +1,3 @@
-# declaracion y asignacion de variables
 def test_variable_declaration_and_assignment(build_ir):
     code = """
     var x: integer = 10;
@@ -6,7 +5,17 @@ def test_variable_declaration_and_assignment(build_ir):
     x = y;
     """
     quads = build_ir(code)
+    print(quads)
 
-    assert any(q.op == "store" for q in quads), "No se generaron instrucciones store"
-    assert any("10" in str(q.a) for q in quads), "No se encontró asignación del valor 10"
-    assert any("y" in str(q.r) for q in quads), "No se asignó correctamente a y"
+    ops = [q.op for q in quads]
+
+    assert "copy" in ops, "No se generaron instrucciones copy"
+
+    # Se asigna 10 a alguna variable temporal
+    assert any(q.op == "copy" and q.a == 10 for q in quads), "No se encontró asignación del valor 10"
+
+    # Se asigna 20 a alguna variable temporal
+    assert any(q.op == "copy" and q.a == 20 for q in quads), "No se encontró asignación del valor 20"
+
+    assert any("t3" == q.a and "t2" == q.result for q in quads), \
+         "No se copió correctamente y en x"
