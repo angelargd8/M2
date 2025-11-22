@@ -142,6 +142,24 @@ class IRGenerator:
 
         return None
 
+    def _resolve_method_label(self, clsname: str | None, method: str) -> str | None:
+        """
+        Resuelve un método siguiendo la cadena de herencia.
+        Devuelve el label seguro (mangle si existe) o None si no se encuentra.
+        """
+        if not self.symtab:
+            return None
+        visited = set()
+        while clsname and clsname not in visited:
+            visited.add(clsname)
+            qname = f"{clsname}.{method}"
+            fs = self.symtab.global_scope.resolve(qname)
+            if isinstance(fs, FunctionSymbol):
+                return fs.label or qname
+            t = self.symtab.types.get(clsname)
+            clsname = getattr(t, "base", None) if t else None
+        return None
+
     def _addr_for_local_var(self, name: str) -> str | None:
         """
         Usa FunctionSymbol.param_offsets y local_offsets para armar una dirección
@@ -835,19 +853,26 @@ class IRGenerator:
 
             # intentar resolver tipo estático del objeto
             clsname = None
-            if isinstance(callee.object, Var) and self.symtab:
+            if isinstance(callee.object, (Var, This)) and callee.object.__dict__.get("name", None) == "this" and self.current_class:
+                clsname = self.current_class
+            elif isinstance(callee.object, This) and self.current_class:
+                clsname = self.current_class
+            elif isinstance(callee.object, Var) and self.symtab:
                 vs = self.symtab.global_scope.resolve(callee.object.name)
                 if hasattr(vs, "type") and vs.type:
                     clsname = vs.type.name
             # label preferido: Clase.metodo si existe en symtab
             label_candidate = f"{clsname}.{callee.name}" if clsname else callee.name
+            label_or_temp = None
             if self.symtab:
-                fs = self.symtab.global_scope.resolve(label_candidate)
-                if isinstance(fs, FunctionSymbol):
-                    label_or_temp = fs.label or label_candidate
-                else:
-                    label_or_temp = label_candidate
-            else:
+                # intentar resolver por herencia (método definido en la base)
+                label_or_temp = self._resolve_method_label(clsname, callee.name)
+                if not label_or_temp:
+                    fs = self.symtab.global_scope.resolve(label_candidate)
+                    if isinstance(fs, FunctionSymbol):
+                        label_or_temp = fs.label or label_candidate
+
+            if not label_or_temp:
                 label_or_temp = label_candidate
 
             # pasar this como primer param

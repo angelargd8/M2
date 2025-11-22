@@ -131,6 +131,9 @@ class MIPSCodeGen:
         for t in self._temps_used_by(instr):
             if t not in self.temp_use_count:
                 continue
+            # No liberar temporales que están en la lista de params pendientes de un call
+            if hasattr(self, "fun_mod") and t in getattr(self.fun_mod, "pending_params", []):
+                continue
             self.temp_use_count[t] -= 1
             if self.temp_use_count[t] <= 0:
                 if t in self.mutable_temps:
@@ -409,6 +412,16 @@ class MIPSCodeGen:
                     self.temp_string.pop(r, None)
                 else:
                     self._load_from_addr(a, reg_r)
+                    # Si cargamos una variable global con tipo de objeto conocido,
+                    # propagar el tipo dinámico al temporal resultante.
+                    if not a.startswith("FP[") and hasattr(self, "class_mod"):
+                        cls = self.class_mod.global_obj_types.get(a)
+                        if cls:
+                            self.class_mod.obj_types[r] = cls
+                            self.ptr_table[r] = reg_r
+                            self.temp_ptr[r] = reg_r
+                            self.temp_int.pop(r, None)
+                            self.temp_string.pop(r, None)
 
             elif op == "store":
                 self._store_to_addr(a, r)

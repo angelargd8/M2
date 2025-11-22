@@ -9,7 +9,6 @@
 #   getidx       tArr,idx, tDst
 #   array_length tArr,-,   tLen
 #
-# NOTA: por ahora soportamos índices que sean literales enteros
 #       (0,1,2,...) o strings de dígitos ("0","1",...).
 #       Esto basta para la inicialización de arreglos literales:
 #       [1,2,3,4,5], [[1,2],[3,4]], etc.

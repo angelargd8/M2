@@ -171,6 +171,8 @@ class SemanticAnalyzer:
         # registrar el tipo de clase
         if cname not in self.symtab.types:
             self.symtab.types[cname] = TypeSymbol(cname)
+        # guardar referencia al padre en el TypeSymbol para uso posterior (IR, codegen)
+        self.symtab.types[cname].base = base
 
         # heredar props de base
         props: Dict[str, TypeSymbol] = {}

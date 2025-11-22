@@ -34,6 +34,12 @@ class MIPSFun:
         frame_size = max(declared_frame, local_need)
         self.frame_effective[func_label] = frame_size
 
+        # Si es un método (Clase.metodo), propagar el tipo de 'this' estático
+        if "." in func_label and hasattr(cg, "class_mod"):
+            cls_name = func_label.split(".", 1)[0]
+            cg.class_mod.global_obj_types["this"] = cls_name
+            cg.class_mod.obj_types["this"] = cls_name
+
         cg.emit("    addi $sp, $sp, -8")
         cg.emit("    sw $fp, 4($sp)")
         cg.emit("    sw $ra, 0($sp)")
@@ -101,22 +107,54 @@ class MIPSFun:
                 dyn_cls = cg.class_mod.obj_types[this_temp]
                 cg.class_mod.global_obj_types["this"] = dyn_cls
                 _, meth = func_label.split(".", 1)
-                func_label = f"{dyn_cls}.{meth}"
+                candidate = f"{dyn_cls}.{meth}"
+                # solo cambiamos al método dinámico si existe realmente
+                if (
+                    candidate in cg.func_label_map
+                    or (cg.symtab and candidate in cg.symtab.global_scope.symbols)
+                ):
+                    func_label = candidate
 
         # aplicar mangle seguro si existe
+        sym_lookup = func_label  # nombre lógico para buscar en la tabla de símbolos
         func_label = cg.func_label_map.get(func_label, func_label)
 
+        # Resolver tipo de retorno con el nombre lógico (antes del mangle),
+        # para decidir si el resultado es puntero o un valor primitivo.
+        ret_sym = None
+        if cg.symtab and cg.symtab.global_scope:
+            cand = cg.symtab.global_scope.resolve(sym_lookup)
+            if cand:
+                ret_sym = cand
+
+        total_params = len(self.pending_params)
         cg.emit(f"    jal {func_label}")
-        if argc and argc > 0:
-            cg.emit(f"    addi $sp, $sp, {4 * argc}")
+        if total_params > 0:
+            cg.emit(f"    addi $sp, $sp, {4 * total_params}")
+
         reg_r = cg.tm.get_reg(t_res)
         cg.emit(f"    move {reg_r}, $v0")
 
         # invalidar meta vieja del temporal
         cg.temp_int.pop(t_res, None)
         cg.temp_string.pop(t_res, None)
-        cg.temp_ptr[t_res] = reg_r
-        cg.ptr_table[t_res] = reg_r
+        cg.temp_float.pop(t_res, None)
+        cg.temp_bool.pop(t_res, None)
+        cg.temp_ptr.pop(t_res, None)
+        cg.ptr_table.pop(t_res, None)
+
+        # Solo marcar como puntero los retornos que realmente lo son
+        # (strings, listas, objetos). Int/bool quedan como valor plano.
+        ret_type = getattr(ret_sym, "return_type", None)
+        if ret_type:
+            is_obj = getattr(ret_type, "fields", None) is not None
+            if ret_type.name in ("string", "list", "array") or is_obj or ret_type.name not in ("int", "bool", "void", "float"):
+                cg.temp_ptr[t_res] = reg_r
+                cg.ptr_table[t_res] = reg_r
+            elif ret_type.name == "float":
+                # Marcar que es float aunque no sea constante
+                cg.temp_float[t_res] = None
+
         self.pending_params.clear()
 
 
