@@ -4,10 +4,21 @@
 
 .data
 this: .word 0
-g_rect: .word 0
+g_addFive: .word 0
+g_restar: .word 0
+g_multiplicar: .word 0
+g_dividir: .word 0
 exc_handler: .word 0
 exc_value: .word 0
 str_div_zero: .asciiz "division by zero"
+str_0: .asciiz "==SUMA=="
+str_1: .asciiz "5 + 2 = "
+str_2: .asciiz "==RESTA=="
+str_3: .asciiz "5 - 2 = "
+str_4: .asciiz "==MULTIPLICACION=="
+str_5: .asciiz "5 * 2 = "
+str_6: .asciiz "==DIVISION=="
+str_7: .asciiz "10 / 2 = "
 nl: .asciiz "\n"
 str_lbr: .asciiz "["
 str_rbr: .asciiz "]"
@@ -92,7 +103,7 @@ cs_its_done:
     addi $sp, $sp, 44
     jr $ra
 
-Shape.setId:
+makeAdder:
     addi $sp, $sp, -8
     sw $fp, 4($sp)
     sw $ra, 0($sp)
@@ -107,134 +118,13 @@ Shape.setId:
     sw $s6, 24($sp)
     sw $s7, 28($sp)
     lw $t0, 8($fp)
-    la $t1, this
-    lw $t1, 0($t1)
+    li $t1, 2
     move $t0, $t0
-    # setprop id
-    sw $t0, 0($t1)
-Shape.setId_epilog:
-    # ---- EPILOG ----
-    lw $s0, 0($sp)
-    lw $s1, 4($sp)
-    lw $s2, 8($sp)
-    lw $s3, 12($sp)
-    lw $s4, 16($sp)
-    lw $s5, 20($sp)
-    lw $s6, 24($sp)
-    lw $s7, 28($sp)
-    addi $sp, $sp, 32
-    lw $ra, 0($sp)
-    lw $fp, 4($sp)
-    addi $sp, $sp, 8
-    beq $ra, $zero, __program_exit
-    jr $ra
-Shape.getId:
-    addi $sp, $sp, -8
-    sw $fp, 4($sp)
-    sw $ra, 0($sp)
-    move $fp, $sp
-    addi $sp, $sp, -32
-    sw $s0, 0($sp)
-    sw $s1, 4($sp)
-    sw $s2, 8($sp)
-    sw $s3, 12($sp)
-    sw $s4, 16($sp)
-    sw $s5, 20($sp)
-    sw $s6, 24($sp)
-    sw $s7, 28($sp)
-    la $t0, this
-    lw $t0, 0($t0)
-    # getprop id -> t2
-    lw $t1, 0($t0)
     move $t1, $t1
-    move $v0, $t1
-Shape.getId_epilog:
-    # ---- EPILOG ----
-    lw $s0, 0($sp)
-    lw $s1, 4($sp)
-    lw $s2, 8($sp)
-    lw $s3, 12($sp)
-    lw $s4, 16($sp)
-    lw $s5, 20($sp)
-    lw $s6, 24($sp)
-    lw $s7, 28($sp)
-    addi $sp, $sp, 32
-    lw $ra, 0($sp)
-    lw $fp, 4($sp)
-    addi $sp, $sp, 8
-    beq $ra, $zero, __program_exit
-    jr $ra
-    j Shape.getId_epilog
-Rectangle.setDimensions:
-    addi $sp, $sp, -8
-    sw $fp, 4($sp)
-    sw $ra, 0($sp)
-    move $fp, $sp
-    addi $sp, $sp, -32
-    sw $s0, 0($sp)
-    sw $s1, 4($sp)
-    sw $s2, 8($sp)
-    sw $s3, 12($sp)
-    sw $s4, 16($sp)
-    sw $s5, 20($sp)
-    sw $s6, 24($sp)
-    sw $s7, 28($sp)
-    lw $t0, 8($fp)
-    la $t1, this
-    lw $t1, 0($t1)
-    move $t0, $t0
-    # setprop width
-    sw $t0, 4($t1)
-    lw $t0, 12($fp)
-    la $t1, this
-    lw $t1, 0($t1)
-    move $t0, $t0
-    # setprop height
-    sw $t0, 8($t1)
-Rectangle.setDimensions_epilog:
-    # ---- EPILOG ----
-    lw $s0, 0($sp)
-    lw $s1, 4($sp)
-    lw $s2, 8($sp)
-    lw $s3, 12($sp)
-    lw $s4, 16($sp)
-    lw $s5, 20($sp)
-    lw $s6, 24($sp)
-    lw $s7, 28($sp)
-    addi $sp, $sp, 32
-    lw $ra, 0($sp)
-    lw $fp, 4($sp)
-    addi $sp, $sp, 8
-    beq $ra, $zero, __program_exit
-    jr $ra
-Rectangle.area:
-    addi $sp, $sp, -8
-    sw $fp, 4($sp)
-    sw $ra, 0($sp)
-    move $fp, $sp
-    addi $sp, $sp, -32
-    sw $s0, 0($sp)
-    sw $s1, 4($sp)
-    sw $s2, 8($sp)
-    sw $s3, 12($sp)
-    sw $s4, 16($sp)
-    sw $s5, 20($sp)
-    sw $s6, 24($sp)
-    sw $s7, 28($sp)
-    la $t0, this
-    lw $t0, 0($t0)
-    # getprop width -> t1
-    lw $t1, 4($t0)
-    la $t0, this
-    lw $t0, 0($t0)
-    # getprop height -> t3
-    lw $t2, 8($t0)
-    move $t1, $t1
+    add $t2, $t0, $t1
     move $t2, $t2
-    mul $t0, $t1, $t2
-    move $t0, $t0
-    move $v0, $t0
-Rectangle.area_epilog:
+    move $v0, $t2
+makeAdder_epilog:
     # ---- EPILOG ----
     lw $s0, 0($sp)
     lw $s1, 4($sp)
@@ -250,8 +140,8 @@ Rectangle.area_epilog:
     addi $sp, $sp, 8
     beq $ra, $zero, __program_exit
     jr $ra
-    j Rectangle.area_epilog
-Rectangle.describe:
+    j makeAdder_epilog
+RESTA:
     addi $sp, $sp, -8
     sw $fp, 4($sp)
     sw $ra, 0($sp)
@@ -265,36 +155,14 @@ Rectangle.describe:
     sw $s5, 20($sp)
     sw $s6, 24($sp)
     sw $s7, 28($sp)
-    la $t0, this
-    lw $t0, 0($t0)
-    # getprop id -> t3
-    lw $t1, 0($t0)
+    lw $t0, 8($fp)
+    li $t1, 2
+    move $t0, $t0
     move $t1, $t1
-    move $a0, $t1
-    li $v0, 1
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-    la $t1, this
-    lw $t1, 0($t1)
-    move $t1, $t1
-    addi $sp, $sp, -4
-    sw $t1, 0($sp)
-    move $t1, $t1
-    la $t9, this
-    sw $t1, 0($t9)
-    jal Rectangle.area
-    addi $sp, $sp, 4
-    move $t1, $v0
-    move $t1, $t1
-    move $a0, $t1
-    li $v0, 1
-    syscall
-    la $a0, nl
-    li $v0, 4
-    syscall
-Rectangle.describe_epilog:
+    sub $t2, $t0, $t1
+    move $t2, $t2
+    move $v0, $t2
+RESTA_epilog:
     # ---- EPILOG ----
     lw $s0, 0($sp)
     lw $s1, 4($sp)
@@ -310,6 +178,98 @@ Rectangle.describe_epilog:
     addi $sp, $sp, 8
     beq $ra, $zero, __program_exit
     jr $ra
+    j RESTA_epilog
+MULTIPLICACION:
+    addi $sp, $sp, -8
+    sw $fp, 4($sp)
+    sw $ra, 0($sp)
+    move $fp, $sp
+    addi $sp, $sp, -32
+    sw $s0, 0($sp)
+    sw $s1, 4($sp)
+    sw $s2, 8($sp)
+    sw $s3, 12($sp)
+    sw $s4, 16($sp)
+    sw $s5, 20($sp)
+    sw $s6, 24($sp)
+    sw $s7, 28($sp)
+    lw $t0, 8($fp)
+    li $t1, 2
+    move $t0, $t0
+    move $t1, $t1
+    mul $t2, $t0, $t1
+    move $t2, $t2
+    move $v0, $t2
+MULTIPLICACION_epilog:
+    # ---- EPILOG ----
+    lw $s0, 0($sp)
+    lw $s1, 4($sp)
+    lw $s2, 8($sp)
+    lw $s3, 12($sp)
+    lw $s4, 16($sp)
+    lw $s5, 20($sp)
+    lw $s6, 24($sp)
+    lw $s7, 28($sp)
+    addi $sp, $sp, 32
+    lw $ra, 0($sp)
+    lw $fp, 4($sp)
+    addi $sp, $sp, 8
+    beq $ra, $zero, __program_exit
+    jr $ra
+    j MULTIPLICACION_epilog
+DIVISION:
+    addi $sp, $sp, -8
+    sw $fp, 4($sp)
+    sw $ra, 0($sp)
+    move $fp, $sp
+    addi $sp, $sp, -32
+    sw $s0, 0($sp)
+    sw $s1, 4($sp)
+    sw $s2, 8($sp)
+    sw $s3, 12($sp)
+    sw $s4, 16($sp)
+    sw $s5, 20($sp)
+    sw $s6, 24($sp)
+    sw $s7, 28($sp)
+    lw $t0, 8($fp)
+    li $t1, 2
+    move $t0, $t0
+    move $t1, $t1
+    beq $t1, $zero, DZ_ERR_L1
+    div $t0, $t1
+    mflo $t2
+    j DZ_OK_L1
+DZ_ERR_L1:
+    la $t8, str_div_zero
+    la $t9, exc_value
+    sw $t8, 0($t9)
+    la $t9, exc_handler
+    lw $t9, 0($t9)
+    beq $t9, $zero, DZ_JMP_L1
+    jr $t9
+DZ_JMP_L1:
+    li $v0, 10
+    syscall
+DZ_OK_L1:
+    move $t2, $t2
+    move $v0, $t2
+DIVISION_epilog:
+    # ---- EPILOG ----
+    lw $s0, 0($sp)
+    lw $s1, 4($sp)
+    lw $s2, 8($sp)
+    lw $s3, 12($sp)
+    lw $s4, 16($sp)
+    lw $s5, 20($sp)
+    lw $s6, 24($sp)
+    lw $s7, 28($sp)
+    addi $sp, $sp, 32
+    lw $ra, 0($sp)
+    lw $fp, 4($sp)
+    addi $sp, $sp, 8
+    beq $ra, $zero, __program_exit
+    jr $ra
+    j DIVISION_epilog
 main:
     addi $sp, $sp, -8
     sw $fp, 4($sp)
@@ -324,93 +284,129 @@ main:
     sw $s5, 20($sp)
     sw $s6, 24($sp)
     sw $s7, 28($sp)
-    # newobj Rectangle -> t3
-    li $a0, 12
-    li $v0, 9
+    # print string (literal/global): str_0
+    la $a0, str_0
+    li $v0, 4
     syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    li $t0, 5
+    move $t0, $t0
+    addi $sp, $sp, -4
+    sw $t0, 0($sp)
+    jal makeAdder
+    addi $sp, $sp, 4
     move $t0, $v0
-    la $t9, g_rect
+    move $t0, $t0
+    la $t9, g_addFive
     sw $t0, 0($t9)
-    li $t1, 500
-    la $t2, g_rect
-    lw $t2, 0($t2)
-    move $t2, $t2
-    addi $sp, $sp, -4
-    sw $t2, 0($sp)
-    move $t1, $t1
-    addi $sp, $sp, -4
-    sw $t1, 0($sp)
-    move $t2, $t2
-    la $t9, this
-    sw $t2, 0($t9)
-    jal Shape.setId
-    addi $sp, $sp, 8
-    move $t1, $v0
-    li $t2, 10
-    li $t3, 20
-    la $t4, g_rect
-    lw $t4, 0($t4)
-    move $t4, $t4
-    addi $sp, $sp, -4
-    sw $t4, 0($sp)
-    move $t2, $t2
-    addi $sp, $sp, -4
-    sw $t2, 0($sp)
-    move $t3, $t3
-    addi $sp, $sp, -4
-    sw $t3, 0($sp)
-    move $t4, $t4
-    la $t9, this
-    sw $t4, 0($t9)
-    jal Rectangle.setDimensions
-    addi $sp, $sp, 12
-    move $t3, $v0
-    la $t2, g_rect
-    lw $t2, 0($t2)
-    move $t2, $t2
-    addi $sp, $sp, -4
-    sw $t2, 0($sp)
-    move $t2, $t2
-    la $t9, this
-    sw $t2, 0($t9)
-    jal Shape.getId
-    addi $sp, $sp, 4
-    move $t2, $v0
-    move $t2, $t2
-    move $a0, $t2
+    # print string (literal/global): str_1
+    la $a0, str_1
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    la $t0, g_addFive
+    lw $a0, 0($t0)
     li $v0, 1
     syscall
     la $a0, nl
     li $v0, 4
     syscall
-    la $t2, g_rect
-    lw $t2, 0($t2)
-    move $t2, $t2
+    # print string (literal/global): str_2
+    la $a0, str_2
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    li $t0, 5
+    move $t0, $t0
     addi $sp, $sp, -4
-    sw $t2, 0($sp)
-    move $t2, $t2
-    la $t9, this
-    sw $t2, 0($t9)
-    jal Rectangle.area
+    sw $t0, 0($sp)
+    jal RESTA
     addi $sp, $sp, 4
-    move $t2, $v0
-    move $t2, $t2
-    move $a0, $t2
+    move $t0, $v0
+    move $t0, $t0
+    la $t9, g_restar
+    sw $t0, 0($t9)
+    # print string (literal/global): str_3
+    la $a0, str_3
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    la $t0, g_restar
+    lw $a0, 0($t0)
     li $v0, 1
     syscall
     la $a0, nl
     li $v0, 4
     syscall
-    la $t2, g_rect
-    lw $t2, 0($t2)
-    move $t2, $t2
+    # print string (literal/global): str_4
+    la $a0, str_4
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    li $t0, 5
+    move $t0, $t0
     addi $sp, $sp, -4
-    sw $t2, 0($sp)
-    move $t2, $t2
-    la $t9, this
-    sw $t2, 0($t9)
-    jal Rectangle.describe
+    sw $t0, 0($sp)
+    jal MULTIPLICACION
     addi $sp, $sp, 4
-    move $t2, $v0
+    move $t0, $v0
+    move $t0, $t0
+    la $t9, g_multiplicar
+    sw $t0, 0($t9)
+    # print string (literal/global): str_5
+    la $a0, str_5
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    la $t0, g_multiplicar
+    lw $a0, 0($t0)
+    li $v0, 1
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    # print string (literal/global): str_6
+    la $a0, str_6
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    li $t0, 10
+    move $t0, $t0
+    addi $sp, $sp, -4
+    sw $t0, 0($sp)
+    jal DIVISION
+    addi $sp, $sp, 4
+    move $t0, $v0
+    move $t0, $t0
+    la $t9, g_dividir
+    sw $t0, 0($t9)
+    # print string (literal/global): str_7
+    la $a0, str_7
+    li $v0, 4
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
+    la $t0, g_dividir
+    lw $a0, 0($t0)
+    li $v0, 1
+    syscall
+    la $a0, nl
+    li $v0, 4
+    syscall
     li $v0, 10
     syscall
