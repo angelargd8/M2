@@ -43,8 +43,8 @@ class MIPSTC:
         # guardar copia en exc_tmp para impresiones posteriores
         self.cg.emit("    la $t8, exc_tmp")
         self.cg.emit(f"    sw {reg}, 0($t8)")
-        # marcarlo como entero (no puntero)
+        # marcarlo como puntero (p. ej. str_div_zero)
+        self.cg.ptr_table[t_dst] = reg
+        self.cg.temp_ptr[t_dst] = reg
         self.cg.temp_int.pop(t_dst, None)
-        self.cg.temp_ptr.pop(t_dst, None)
-        self.cg.ptr_table.pop(t_dst, None)
         self.cg.temp_string.pop(t_dst, None)

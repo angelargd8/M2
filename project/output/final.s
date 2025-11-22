@@ -159,40 +159,32 @@ L1:
     sw $t2, 0($t9)
     la $t9, exc_tmp
     lw $t0, 0($t9)
-    move $t0, $t0
-    addi $sp, $sp, -4
-    sw $a0, 0($sp)
-    move $a0, $t0
-    jal cs_int_to_string
-    lw $a0, 0($sp)
-    addi $sp, $sp, 4
-    move $t3, $v0
-    la $t4, str_1
-    move $t5, $t3
+    la $t3, str_1
+    move $t4, $t0
     li $a0, 512
     li $v0, 9
     syscall
-    move $t6, $v0
-    move $t7, $t6
+    move $t5, $v0
+    move $t6, $t5
 concat_copy_a_t4_1:
-    lb $t8, 0($t4)
-    sb $t8, 0($t7)
-    beq $t8, $zero, concat_copy_b_t4_1
-    addi $t4, $t4, 1
-    addi $t7, $t7, 1
+    lb $t7, 0($t3)
+    sb $t7, 0($t6)
+    beq $t7, $zero, concat_copy_b_t4_1
+    addi $t3, $t3, 1
+    addi $t6, $t6, 1
     j concat_copy_a_t4_1
 concat_copy_b_t4_1:
-    lb $t8, 0($t5)
-    sb $t8, 0($t7)
-    beq $t8, $zero, concat_done_t4_1
-    addi $t5, $t5, 1
-    addi $t7, $t7, 1
+    lb $t7, 0($t4)
+    sb $t7, 0($t6)
+    beq $t7, $zero, concat_done_t4_1
+    addi $t4, $t4, 1
+    addi $t6, $t6, 1
     j concat_copy_b_t4_1
 concat_done_t4_1:
-    sb $zero, 0($t7)
-    move $t3, $t6
+    sb $zero, 0($t6)
+    move $t8, $t5
     # print dynamic string in t4
-    move $a0, $t3
+    move $a0, $t8
     li $v0, 4
     syscall
     la $a0, nl

@@ -402,8 +402,10 @@ class MIPSCodeGen:
                     # carga nula (p.ej. catch sin valor): devolver exc_tmp
                     self.emit("    la $t9, exc_tmp")
                     self.emit(f"    lw {reg_r}, 0($t9)")
+                    # tratarlo como puntero (string de error) si viene de exc
+                    self.ptr_table[r] = reg_r
+                    self.temp_ptr[r] = reg_r
                     self.temp_int.pop(r, None)
-                    self.temp_ptr.pop(r, None)
                     self.temp_string.pop(r, None)
                 else:
                     self._load_from_addr(a, reg_r)
