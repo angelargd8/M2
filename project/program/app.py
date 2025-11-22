@@ -3,9 +3,11 @@ from antlr4 import *
 from gen.CompiscriptLexer import CompiscriptLexer
 from gen.CompiscriptParser import CompiscriptParser
 from AstBuilder import AstBuilder
+from AstVisualization import render_ast
 from SemanticAnalyzer import SemanticAnalyzer
+from IR import to_quads, print_quads
 from IRGenerator import IRGenerator
-from IR import to_quads
+from MIPSCodeGen import MIPSCodeGen
 
 # Configurar el diseño en formato "wide"
 st.set_page_config(layout="wide")
@@ -71,6 +73,10 @@ if st.button("Run"):
                 # Construir el AST
                 ast = AstBuilder().visit(tree)
 
+                # Renderizar AST
+                render_ast(ast, "./output/ast")
+                st.success("AST generado en ./output/ast.png")
+
                 # Análisis semántico
                 analyzer = SemanticAnalyzer()
                 analyzer.collect_signatures(ast)  # Pasada 1
@@ -83,17 +89,30 @@ if st.button("Run"):
                 else:
                     st.success("¡Chequeo semántico sin errores!")
                     
+                    # --- IR (tac) ---
                     # Generación de código intermedio/tres direcciones
-                    ir_gen = IRGenerator()
+                    ir_gen = IRGenerator(symtab=analyzer.symtab)
                     ir = ir_gen.generate(ast)
                     quads = to_quads(ir)
                     
-                    # Guardar el TAC en un archivo
+                    # Guardar el TAC en un archivo (sin mostrar)
                     with open("./output/program.tac", "w") as f:
-                        for i in quads:
+                        for i in ir:
                             f.write(repr(i) + "\n")
                     
                     st.success("Código intermedio (TAC) generado y guardado en output/program.tac")
+                    
+                    # --- MIPS Code Generation ---
+                    mips_gen = MIPSCodeGen(ir, analyzer.symtab)
+                    mips_code = mips_gen.generate()
+                    
+                    final_code = "\n\n# ===== Compiscript Program =====\n\n" + mips_code
+                    
+                    # Guardar el código MIPS en un archivo
+                    with open("./output/final.s", "w") as f:
+                        f.write(final_code)
+                    
+                    st.success("Código MIPS generado y guardado en output/final.s")
                     st.write("Árbol de análisis generado con éxito.")
 
         except Exception as e:
